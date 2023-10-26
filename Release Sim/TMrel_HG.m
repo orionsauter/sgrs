@@ -8,31 +8,17 @@ clc, clear all, close all
 
 %% Settings
 global imp imn imy bond1 bond2 tsep1 tsep2 tsept
-
-plots=1;
-savedata=0;
-saveplot=0;
-
-tspan = [0 20]; % Time array [s]
-
-Ad_G1=0; % GF1 adhesion force profile
-Ad_G2=2; % GF2
-Ad_T1=0; % RT1
-Ad_T2=0; % RT2
-
-v_input = 'con'; % 'con' for constant speed (faster simulation), 'ts' for time series speed profile (slower sim)
+config = jsondecode(regexprep(fileread("config.json"),"%+.+?\n","\n"));
+fields = fieldnames(config);
+for i = 1:numel(fields)
+    eval(fields{i}+"="+config.(fields{i})+";")
+end
 
 timestamp = (num2str(fix(clock)));
 savingid = timestamp((~isspace(timestamp)));
-savepath = ['C:\Users\anthony.davila\OneDrive - University of Florida\Shared Documents\Design\CVM\MATLAB Scripts\',savingid,'\'];
+savepath = [savingid,'\'];
 
 %% Parameters
-
-% Time
-ts1 = 50e-6; % [s] GF1 actuation delay time
-ts2 = 0; % [s] GF2 actuation delay time
-tp = 1; % [s] pause retraction of GFs
-tc = 6; % [s] continue retraction of GFs
 
 % Retraction Speed
 switch v_input
@@ -43,45 +29,11 @@ switch v_input
         load('v_input_2ums_array.mat') % retraction speed time-series
 end
 
-% Dimensions
-sTM = 30e-3; % [m] TM cube side length
-sEH = 32e-3; % [m] EH cube side length
-%d = 3.8e-3; % [m] Offset between GF and unstretched spring length
-Lt = 0.5e-4; % [m] Maximum length that the RT extends from the GF
-alp = 45*pi/180; % [rad] TM indent inclination
-ac = 14.5e-3; %[m] distance of TM-GF contact point along y
-bc = 2.5e-3; %[m] distance of TM-GF contact point ialong x or z
-rgf = 4e-3/2; % [m] radius of GF tip
-
-% Mass & Inertia
-mG = (143/1000^3)*4430; % [kg] GF mass - annealed, grade 5 Titanium
-mT = (4*pi*2.5^2/1000^3)*3200; % [kg] RT mass - Silicon Nitride
-M = 0.5378; % [kg] ILaRIS TM mass - 70Au-30Pt
-I = eye(3)*(1/6)*M*sTM^2; % [kg-m^2] TM matrix of inertia
-
 % Spring, Damping, & Friction
-k=1.317e4;%0.75*(4.45/0.0254);%1.317e4; % [N/m] Spring constant
-kG=5e5;%6e7;%114e9*8.6/(16*1000); % [N/m] GF equivalent spring constant (from GF prelim geometry)
-kT=5e5;%1e7;%1.515e7; %(pi*2.5e-3^2)*290e9/4e-3 % [N/m] RT equivalent spring constant
-ksi=0.8; % Damping ratio
 b=ksi*2*sqrt(k*mT);%0.01*2*sqrt(k*mT); % [N s/m] Damping constant
-muT = 0.1; % Static friction coefficient of silicon nitride ceramic tips
-muG = 0.1 ; % Static friction coefficient of 70Au-30Pt GFs (assumed)
 
 % Electrostatic stiffness
-Vinj=4; %[V] Injection signal bias
 kGRS=-3.77e-9*Vinj^2-4.1e-9; % [N/m] from Giacomo's thesis
-
-% Impulses (from GPRM data)
-ixp = 75e-6; % [kg m/s] TM release x impulse on CGF side
-ixn = 85e-6; % [kg m/s] TM release x impulse on PGF side
-izp = -40e-6; % [kg m/s] TM release z impulse on CGF side
-izn = -20e-6; % [kg m/s] TM release z impulse on PGF side
-iy = 60e-6; % [kg m/s] TM release residual y impulse
-Fx = 0; % [N] Lateral force x
-Fz = 0;% [N] Lateral force y
-T = [0,0,0]; % [N-m] Pure torque
-timp = 0.5; % [s] time interval in which to apply lateral impulse
 
 tsep1  = -timp; % [s] initial value for separation times
 tsep2  = -timp; % [s]
@@ -91,7 +43,6 @@ imn = 0; % PGF impulse has not occured
 imy = 0;
 
 % Adhesion force
-tr = 4e-6; % [m] bond elongation threshold (if exceeded the adhesion bond is broken)
 bond1 = 1; % starting value for TM to GF1 bond
 bond2 = 1; % starting value for TM to GF2 bond
 [ X1g1, X2g1, X3g1 ] = f_adh_predef( Ad_G1 );
@@ -101,22 +52,12 @@ bond2 = 1; % starting value for TM to GF2 bond
 
 %% Initial Conditions
 
-xG10=-3.26e-6;%-3.26e-6+sTM/2;%-200/kG;% % [m] GF1 position
-vG10=0; % [m/s] GF1 speed
-xG20=3.26e-6;%3.26e-6-sTM/2;%200/kG; % [m] GF2 position
-vG20=0; % [m/s] GF1 speed
-
 d = -(-xG10-0.5/k)/(1+(k/kT));%3.8e-3; % [m] Offset between GF and unstretched spring length
 
 xT10=-k*d/kT;%-k*d/kT+sTM/2;%0; % [m] RT1 position
 vT10=0; % [m/s] RT1 speed
 xT20=k*d/kT;%k*d/kT-sTM/2;%0; % [m] RT2 position
 vT20=0; % [m/s] RT2 speed 
-
-xTM0=[0,0,0]; % [m] TM position 
-vTM0=[0,0,0]; % [m/s] TM velocity
-bTM0=[0,0,0]; % [rad] TM orientation (body system)
-wTM0=[0,0,0]; % [rad/s] TM angular velocity (body system)
 
 y0 = [xG10 ; xG20 ; xT10 ; vT10 ; xT20 ; vT20 ; xTM0' ; vTM0' ; bTM0' ; wTM0'];
 
@@ -353,9 +294,9 @@ if plots==1 && saveplot==1
 end
 
 %% Send Email once it's done
-cd 'C:\Users\anthony.davila\OneDrive - University of Florida\Shared Documents\Design\CVM\MATLAB Scripts'
-to = 'anthony.davila@ufl.edu';
-subject = 'Sim done';
-body = 'Yes';
-
-sendolmail(to,subject,body)
+% cd 'C:\Users\anthony.davila\OneDrive - University of Florida\Shared Documents\Design\CVM\MATLAB Scripts'
+% to = 'anthony.davila@ufl.edu';
+% subject = 'Sim done';
+% body = 'Yes';
+% 
+% sendolmail(to,subject,body)
