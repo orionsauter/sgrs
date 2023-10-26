@@ -207,6 +207,7 @@ iy1=iy*(t-tsept<timp);
 % state vector y = [xG1 xG2 xT1 vT1 xT2 vT2 xTM yTM zTM v_xTM v_yTM v_zTM an_xTM an_yTM an_zTM om_xTM om_yTM om_zTM]
 
 % Grabbing Finger and Release Tip (1 DOF, Y-axis displacement)
+    dydt = zeros([18,1]);
     dydt(1,:) = vG1;                                                               % vG1
     dydt(2,:) = vG2;                                                               % vG2
     dydt(3,:) = y(4); % vT1
