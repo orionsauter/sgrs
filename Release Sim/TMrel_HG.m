@@ -5,9 +5,10 @@
 % mechanism in-flight performance" and the spring-tip concept. Integrates ODEs with the use of ODE45.
 
 clc, clear all, close all
+tic
 
 %% Settings
-global imp imn imy bond1 bond2 tsep1 tsep2 tsept
+% global imp imn imy tsep1 tsep2 tsept
 config = jsondecode(regexprep(fileread("config.json"),"%+.+?\n","\n"));
 fields = fieldnames(config);
 for i = 1:numel(fields)
@@ -16,7 +17,7 @@ end
 
 timestamp = (num2str(fix(clock)));
 savingid = timestamp((~isspace(timestamp)));
-savepath = [savingid,'\'];
+savepath = savingid;
 
 %% Parameters
 
@@ -59,16 +60,76 @@ vT10=0; % [m/s] RT1 speed
 xT20=k*d/kT;%k*d/kT-sTM/2;%0; % [m] RT2 position
 vT20=0; % [m/s] RT2 speed 
 
-y0 = [xG10 ; xG20 ; xT10 ; vT10 ; xT20 ; vT20 ; xTM0' ; vTM0' ; bTM0' ; wTM0'];
+y0 = [xG10 ; xG20 ; xT10 ; vT10 ; xT20 ; vT20 ; xTM0' ; vTM0' ; bTM0' ; wTM0'; bond1; bond2; imp; imn; imy; tsep1; tsep2; tsept];
+jpatt = zeros([numel(y0),numel(y0)]);
+jpatt(1,19) = 1;
+jpatt(2,20) = 1;
+jpatt(3,4)  = 1;
+jpatt(4,[1,3,4]) = 1;
+jpatt(5,6) = 1;
+jpatt(6,[2,5,6]) = 1;
+jpatt(7,10) = 1;
+jpatt(8,11) = 1;
+jpatt(9,12) = 1;
+jpatt(10,[7,19,20]) = 1;
+jpatt(11,[8,19,20]) = 1;
+jpatt(12,[9,19,20]) = 1;
+jpatt(13,16) = 1;
+jpatt(14,17) = 1;
+jpatt(15,18) = 1;
+jpatt(16,[17,18]) = 1;
+jpatt(17,[16,18]) = 1;
+jpatt(18,[16,17]) = 1;
 
 %% Integration
-
-% options = odeset('AbsTol',1e-2);
-[t,y] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0);%, options);
+% options = odeset("JPattern",jpatt,"Vectorized","on","Events",@unbond);
+options = odeset("JPattern",jpatt,"Events",@(t,y)unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG));
+%[t,y] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0);%, options);
+ie = 0;
+t = [tspan(1), tspan(1)];
+y = y0;
+t_out = [];
+y_out = [];
+while t(end) < tspan(end)
+    if ie > 0
+        tspan(1) = te(end);
+        y0 = transpose(ye(1,:));
+    else
+        tspan(1) = t(end);
+        y0 = y;
+    end
+    if any(ie == 1)
+        y0(21,:) = 1;
+        y0(24,:) = te(ie==1);
+    end
+    if any(ie == 2)
+        y0(22,:) = 1;
+        y0(25,:) = te(ie==2);
+    end
+    if any(ie == 3)
+        y0(19,:) = ~ye(ie==3,19);
+    end
+    if any(ie == 4)
+        y0(20,:) = ~ye(ie==4,20);
+    end
+    y0(23,:) = y0(21,:) & y0(22,:);
+    y0(26,:) = max(y0(24,:),y0(25,:)).*y0(23,:) + -timp.*~y0(23,:);
+    [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
+    if numel(ie) > 0
+        % fprintf("%f: %d", te(1), ie(1));
+        t_out = cat(1, t_out, t(t<=te(1),:));
+        y_out = cat(1, y_out, y(t<=te(1),:));
+    else
+        t_out = cat(1, t_out, t);
+        y_out = cat(1, y_out, y);
+    end
+    % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HGvec(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
+end
 
 %% Output
 % state vector y = [xG1 xG2 xT1 vT1 xT2 vT2 xTM yTM zTM v_xTM v_yTM v_zTM an_xTM an_yTM an_zTM om_xTM om_yTM om_zTM]
-
+t = t_out;
+y = y_out;
 xG1=y(:,1);
 xG2=y(:,2);
 xT1=y(:,3);
@@ -80,6 +141,15 @@ vTM=y(:,10:12);
 bTM=y(:,13:15);
 wTM=y(:,16:18);
 
+bond1 = y(:,19);
+bond2 = y(:,20);
+imp = y(:,21);
+imn = y(:,22);
+imy = y(:,23);
+tsep1 = y(:,24);
+tsep2 = y(:,25);
+tsept = y(:,26);
+
 clear y % saves memory
 
 dLg1=xG1-xTM(:,2); % yG1-yTM
@@ -87,18 +157,11 @@ dLg2=xTM(:,2)-xG2; % yTM-yG2
 dLt1=xT1-xTM(:,2); % yT1-yTM
 dLt2=xTM(:,2)-xT2; % yTM-yT2
 
-Fg1 = zeros(size(t));
-Fg2 = zeros(size(t));
-Ft1 = zeros(size(t));
-Ft2 = zeros(size(t));
-for ii = 1:size(t,1)
-bond1 = 1*(dLg1(ii)<=0)+1*(dLg1(ii)>0 && dLg1(ii)<tr && bond1==1);
-bond2 = 1*(dLg2(ii)<=0)+1*(dLg2(ii)>0 && dLg2(ii)<tr && bond2==1);
-Fg1(ii)=kG*dLg1(ii)*(dLg1(ii)<=0) + X1g1*dLg1(ii).*exp(-X2g1*dLg1(ii).^X3g1)*(dLg1(ii)>0 && bond1==1);
-Fg2(ii)=kG*dLg2(ii)*(dLg2(ii)<=0) + X1g2*dLg2(ii).*exp(-X2g2*dLg2(ii).^X3g2)*(dLg2(ii)>0 && bond2==1);
-Ft1(ii)=kT*dLt1(ii)*(dLt1(ii)<=0) + X1t1*dLt1(ii).*exp(-X2t1*dLt1(ii).^X3t1)*(dLt1(ii)>0); 
-Ft2(ii)=kT*dLt2(ii)*(dLt2(ii)<=0) + X1t2*dLt2(ii).*exp(-X2t2*dLt2(ii).^X3t2)*(dLt2(ii)>0);
-end
+
+Fg1=kG*dLg1.*(dLg1<=0) + X1g1.*dLg1.*exp(-X2g1.*dLg1.^X3g1).*(dLg1>0 & bond1==1);
+Fg2=kG*dLg2.*(dLg2<=0) + X1g2.*dLg2.*exp(-X2g2.*dLg2.^X3g2).*(dLg2>0 & bond2==1);
+Ft1=kT*dLt1.*(dLt1<=0) + X1t1.*dLt1.*exp(-X2t1.*dLt1.^X3t1).*(dLt1>0); 
+Ft2=kT*dLt2.*(dLt2<=0) + X1t2.*dLt2.*exp(-X2t2.*dLt2.^X3t2).*(dLt2>0);
 
 %% GF Speed Approximate (to confirm input is well applied)
 
@@ -300,3 +363,16 @@ end
 % body = 'Yes';
 % 
 % sendolmail(to,subject,body)
+runtime = toc
+
+function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
+    [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG);
+    bond1 = y(19,:,:);
+    bond2 = y(20,:,:);
+    % Bonds are broken when exceeding the elongation threshold. To re-form a bond, contact must occur (dLg<=0).
+    bond1 = 1*(dLg1<=0)+1*(dLg1>0 & dLg1<tr & bond1==1);
+    bond2 = 1*(dLg2<=0)+1*(dLg2>0 & dLg2<tr & bond2==1);
+    value = [dLg1-tr; dLg2-tr; bond1; bond2];
+    isterminal = [1; 1; 1; 1];
+    direction = [1; 1; 0; 0];
+end

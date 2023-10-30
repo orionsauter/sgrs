@@ -4,7 +4,17 @@
 % in-flight performance" and the spring-tip CVM concept. Called by the script "TMrel_Ball3.m"
 
 function [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2]= TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
-global imp imn imy bond1 bond2 tsep1 tsep2 tsept
+% global imp imn imy bond1 bond2 tsep1 tsep2 tsept
+
+nvar = numel(y);
+bond1 = y(19);
+bond2 = y(20);
+imp = y(21);
+imn = y(22);
+imy = y(23);
+tsep1 = y(24);
+tsep2 = y(25);
+tsept = y(26);
 
 %% Input
 % GF speed - assuming constant actuator speed
@@ -30,6 +40,7 @@ vG1 = (t>=ts1)*vrsy; % current GF speeds
 vG2 = -1*(t>=ts2)*vrsy;
 
 %% Adjusting offset (comment out if 15 mm offset is added as initial condition)
+yo = zeros([5,1]);
 yo(1)=y(1)+sTM/2;
 yo(2)=y(2)-sTM/2;
 yo(3)=y(3)+sTM/2;
@@ -207,7 +218,7 @@ iy1=iy*(t-tsept<timp);
 % state vector y = [xG1 xG2 xT1 vT1 xT2 vT2 xTM yTM zTM v_xTM v_yTM v_zTM an_xTM an_yTM an_zTM om_xTM om_yTM om_zTM]
 
 % Grabbing Finger and Release Tip (1 DOF, Y-axis displacement)
-    dydt = zeros([18,1]);
+    dydt = zeros([nvar,1]);
     dydt(1,:) = vG1;                                                               % vG1
     dydt(2,:) = vG2;                                                               % vG2
     dydt(3,:) = y(4); % vT1
