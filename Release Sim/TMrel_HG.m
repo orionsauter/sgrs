@@ -4,12 +4,12 @@
 % (TM) system according to paper "Prediction of the LISA-Pathfinder release
 % mechanism in-flight performance" and the spring-tip concept. Integrates ODEs with the use of ODE45.
 
-clc, clear all, close all
+clear all, close all
 tic
 
 %% Settings
 % global imp imn imy tsep1 tsep2 tsept
-config = jsondecode(regexprep(fileread("config.json"),"%+.+?\n","\n"));
+config = jsondecode(regexprep(fileread("config.json"),"%[^\n]+\n","\n"));
 fields = fieldnames(config);
 for i = 1:numel(fields)
     eval(fields{i}+"="+config.(fields{i})+";")
@@ -62,66 +62,130 @@ vT20=0; % [m/s] RT2 speed
 
 y0 = [xG10 ; xG20 ; xT10 ; vT10 ; xT20 ; vT20 ; xTM0' ; vTM0' ; bTM0' ; wTM0'; bond1; bond2; imp; imn; imy; tsep1; tsep2; tsept];
 jpatt = zeros([numel(y0),numel(y0)]);
-jpatt(1,19) = 1;
-jpatt(2,20) = 1;
-jpatt(3,4)  = 1;
-jpatt(4,[1,3,4]) = 1;
-jpatt(5,6) = 1;
-jpatt(6,[2,5,6]) = 1;
+jpatt(3,[4,11]) = 1;
+jpatt(5,[6,11]) = 1;
 jpatt(7,10) = 1;
 jpatt(8,11) = 1;
 jpatt(9,12) = 1;
-jpatt(10,[7,19,20]) = 1;
-jpatt(11,[8,19,20]) = 1;
-jpatt(12,[9,19,20]) = 1;
+jpatt(10,[3:9,13:15]) = 1;
+jpatt(11,:) = 1;
+jpatt(12,[3:9,13:15]) = 1;
 jpatt(13,16) = 1;
 jpatt(14,17) = 1;
 jpatt(15,18) = 1;
-jpatt(16,[17,18]) = 1;
-jpatt(17,[16,18]) = 1;
-jpatt(18,[16,17]) = 1;
+jpatt(16,[3:9,13:15]) = 1;
+jpatt(17,[3:9,13:15]) = 1;
+jpatt(18,[3:9,13:15]) = 1;
 
 %% Integration
 % options = odeset("JPattern",jpatt,"Vectorized","on","Events",@unbond);
 options = odeset("JPattern",jpatt,"Events",@(t,y)unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG));
 %[t,y] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0);%, options);
-ie = 0;
+ie = [];
 t = [tspan(1), tspan(1)];
-y = y0;
+y = transpose(y0);
 t_out = [];
 y_out = [];
+chkpts = 0:0.05:1.0;
+chki = 1;
+dur = tspan(end) - tspan(1);
+t_events = [];
 while t(end) < tspan(end)
-    if ie > 0
-        tspan(1) = te(end);
-        y0 = transpose(ye(1,:));
+    if (tspan(end)-tspan(1))/dur > chkpts(chki)
+        fprintf("%.2f: %.0f%%\n",toc,chkpts(chki)*100);
+        chki = chki + 1;
+    end
+    if numel(ie) > 0
+        % Event occurred
+        tspan(1) = min(te);
+        t_events = cat(1, t_events, tspan(1));
+        ye = ye(te<=tspan(1),:);
+        te = te(te<=tspan(1),:);
+        y0 = ye(1,:);
+        [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(tspan(1),y0',...
+            ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,...
+            vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,...
+            I,T,Fx,Fz,tr,timp,rgf,muT,muG);
     else
-        tspan(1) = t(end);
-        y0 = y;
+        if t(1) > tspan(1) && t(end) < tspan(end)
+            tspan(1) = t(end);
+            y0 = y(1,:);
+            fprintf("t = %f: Integration stopped\n",t(end));
+            break
+        else
+            % Start of integration
+            y0 = y(1,:);
+        end
     end
     if any(ie == 1)
-        y0(21,:) = 1;
-        y0(24,:) = te(ie==1);
+        e1 = find(ie==1,1);
+        y0(:,21) = 1;
+        y0(:,24) = te(e1);
+        fprintf("%f: GF1/TM contact\n",te(e1));
     end
     if any(ie == 2)
-        y0(22,:) = 1;
-        y0(25,:) = te(ie==2);
+        e2 = find(ie==2,1);
+        y0(:,22) = 1;
+        y0(:,25) = te(e2);
+        fprintf("%f: GF2/TM contact\n",te(e2));
     end
     if any(ie == 3)
-        y0(19,:) = ~ye(ie==3,19);
+        e3 = find(ie==3,1);
+        y0(:,19) = ~ye(e3,19);
+        if ye(e3,21)==0
+            y0(:,21) = 1;
+            y0(:,24) = te(e3);
+            fprintf("%f: GF1 bond change\n",te(e3));
+        end
     end
     if any(ie == 4)
-        y0(20,:) = ~ye(ie==4,20);
+        e4 = find(ie==4,1);
+        y0(:,20) = ~ye(e4,20);
+        if ye(e4,22)==0
+            y0(:,22) = 1;
+            y0(:,25) = te(e4);
+            fprintf("%f: GF2 bond change\n",te(e4));
+        end
     end
-    y0(23,:) = y0(21,:) & y0(22,:);
-    y0(26,:) = max(y0(24,:),y0(25,:)).*y0(23,:) + -timp.*~y0(23,:);
+    % RT to TM contact – Set RT vel to TM y
+    if any(ie == 5)
+        e5 = find(ie==5,1);
+        y0(:,3) = y0(:,3) + dLt1;
+        y0(:,4) = y0(:,11);
+        fprintf("%f: RT1/TM contact\n",te(e5));
+    end
+    % RT to TM contact – Set RT vel to TM y
+    if any(ie == 6)
+        e6 = find(ie==6,1);
+        y0(:,5) = y0(:,5) - dLt2;
+        y0(:,6) = y0(:,11);
+        fprintf("%f: RT2/TM contact\n",te(e6));
+    end
+    % RT to GF contact – Set RT vel to GF, and pos to full length
+    if any(ie == 7)
+        e7 = find(ie==7,1);
+        y0(:,3) = ye(e7,1) - Lt;
+        y0(:,4) = y0(:,1);
+        fprintf("%f: GF1/RT1 contact\n",te(e7));
+    end
+    if any(ie == 8)
+        e8 = find(ie==8,1);
+        y0(:,5) = ye(e8,2) + Lt;
+        y0(:,6) = y0(:,2);
+        fprintf("%f: GF2/RT2 contact\n",te(e8));
+    end
+    y0(:,23) = y0(:,21) & y0(:,22);
+    y0(:,26) = max(y0(:,24),y0(:,25)).*y0(:,23) + -timp.*~y0(:,23);
     [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
+    % [t,y,te,ye,ie] = ode23s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
+    % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     if numel(ie) > 0
         % fprintf("%f: %d", te(1), ie(1));
-        t_out = cat(1, t_out, t(t<=te(1),:));
-        y_out = cat(1, y_out, y(t<=te(1),:));
+        t_out = cat(1, t_out(1:end-1,:), t(t<=te(1),:));
+        y_out = cat(1, y_out(1:end-1,:), y(t<=te(1),:));
     else
-        t_out = cat(1, t_out, t);
-        y_out = cat(1, y_out, y);
+        t_out = cat(1, t_out(1:end-1,:), t);
+        y_out = cat(1, y_out(1:end-1,:), y);
     end
     % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HGvec(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
 end
@@ -238,7 +302,9 @@ if plots==1
 
 figure(1) % Position
 plot(t,xT1/1e-6,t,xT2/1e-6,t,xG1/1e-6,t,xG2/1e-6,t,xTM(:,2)/1e-6,'LineWidth',2)
-legend RT1 RT2 GF1 GF2 TM
+L = legend('RT1', 'RT2', 'GF1', 'GF2', 'TM');
+L.AutoUpdate = 'off';
+xline(t_events);
 title 'CM & TM Y-axis Displacement'
 xlabel 'Time [sec]'
 ylabel 'Displacement [\mum]'
@@ -246,7 +312,9 @@ grid on
 
 figure(2) % TM Speed
 plot(t,vTM/1e-6,'LineWidth',2)
-legend vTMx vTMy vTMz
+L = legend('vTMx', 'vTMy', 'vTMz');
+L.AutoUpdate = 'off';
+xline(t_events);
 title 'TM Speed'
 xlabel 'Time [sec]'
 ylabel 'Speed [\mum/s]'
@@ -254,7 +322,9 @@ grid on
 
 figure(3) % TM Orientation
 plot(t,bTM,'LineWidth',2)
-legend \psi \theta \phi
+L = legend('\psi', '\theta', '\phi');
+L.AutoUpdate = 'off';
+xline(t_events);
 title 'TM Orientation'
 xlabel 'Time [sec]'
 ylabel 'Angle [rad]'
@@ -262,7 +332,9 @@ grid on
 
 figure(4) % TM Ang. Speed
 plot(t,wTM,'LineWidth',2)
-legend \omega_{psi} \omega_{theta} \omega_{phi}
+L = legend('\omega_{psi}', '\omega_{theta}', '\omega_{phi}');
+L.AutoUpdate = 'off';
+xline(t_events);
 title 'TM Angular Speed'
 xlabel 'Time [sec]'
 ylabel 'Angular Speed [rad/s]'
@@ -278,7 +350,9 @@ grid on
 
 figure(6) % RT forces
 plot(t,Ft1,t,Ft2,'LineWidth',2)
-legend RT1 RT2
+L = legend('RT1', 'RT2');
+L.AutoUpdate = 'off';
+xline(t_events);
 title 'Force between RTs and TM'
 xlabel 'Time [sec]'
 ylabel 'Force [N]'
@@ -338,7 +412,7 @@ zlabel 'Z [m]'
 figure(10) % TM position in X and Z axes
 plot(t,xTM(:,1)/1e-6,t,xTM(:,3)/1e-6,'linewidth',2)
 title 'TM position'
-legend x y z
+legend x z
 xlabel 'Time [s]'
 ylabel 'Displacement [\mum]'
 grid on
@@ -367,12 +441,17 @@ runtime = toc
 
 function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
     [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG);
-    bond1 = y(19,:,:);
-    bond2 = y(20,:,:);
+    bond1 = y(19,1,:);
+    bond2 = y(20,1,:);
     % Bonds are broken when exceeding the elongation threshold. To re-form a bond, contact must occur (dLg<=0).
     bond1 = 1*(dLg1<=0)+1*(dLg1>0 & dLg1<tr & bond1==1);
     bond2 = 1*(dLg2<=0)+1*(dLg2>0 & dLg2<tr & bond2==1);
-    value = [dLg1-tr; dLg2-tr; bond1; bond2];
-    isterminal = [1; 1; 1; 1];
-    direction = [1; 1; 0; 0];
+    c1 = (y(1,1,:)-y(3,1,:)-Lt); % GF RT contact
+    c2 = (y(5,1,:)-y(2,1,:)-Lt);
+    value = [dLg1-tr; dLg2-tr; bond1; bond2; dLt1; dLt2; c1; c2];
+    % isterminal = [1; 1; 1; 1; 0; 0; 0; 0];
+    isterminal = [1; 1; 1; 1; 1; 1; 1; 1];
+    direction = [1; 1; 0; 0; 0; 0; 0; 0];
 end
+
+% function [amp, phase] = damped_osc(w, z, )

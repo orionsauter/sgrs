@@ -122,8 +122,8 @@ dLt1 = lt1*s1h'; % RT to TM face distance along TM face normal
 dLt2 = lt2*s2h';
 
 % Check case conditions % MOD
-cT1 = dLt1<tr; % RT1 to TM contact
-cT2 = dLt2<tr; % RT2 to TM contact
+cT1 = dLt1<0; % RT1 to TM contact
+cT2 = dLt2<0; % RT2 to TM contact
 cG1 = Fc1>0; % GF1 to RT1 contact
 cG2 = Fc2>0; % GF2 to RT2 contact
 
@@ -221,10 +221,27 @@ iy1=iy*(t-tsept<timp);
     dydt = zeros([nvar,1]);
     dydt(1,:) = vG1;                                                               % vG1
     dydt(2,:) = vG2;                                                               % vG2
-    dydt(3,:) = y(4); % vT1
-    dydt(4,:) = (1/mT)*(k*(yo(1)-yo(3)-d)+b*(vG1-y(4))+Fc1-Ft1v(2)); % aT1
-    dydt(5,:) = y(6);% vT2
-    dydt(6,:) = (1/mT)*(k*(yo(2)-yo(5)+d)+b*(vG2-y(6))-Fc2-Ft2v(2)); % aT2
+    
+    % if cT1
+    %     dydt(3,:) = y(11);
+    %     if y(4) > 0
+    %         dydt(3,:) = 0;
+    %     end
+    %     dydt(4,:) = 0;
+    % else
+        dydt(3,:) = y(4); % vT1
+        dydt(4,:) = (1/mT)*(k*(yo(1)-yo(3)-d)+b*(vG1-y(4))+Fc1-Ft1v(2)); % aT1
+    % end
+    % if cT2
+    %     dydt(5,:) = y(11);
+    %     if y(6) > 0
+    %         dydt(5,:) = 0;
+    %     end
+    %     dydt(6,:) = 0;
+    % else
+        dydt(5,:) = y(6); % vT2
+        dydt(6,:) = (1/mT)*(k*(yo(2)-yo(5)+d)+b*(vG2-y(6))-Fc2-Ft2v(2)); % aT2
+    % end
 
   % Test Mass (6 DOF)
     dydt(7,:) = y(10);                                      % vxTM
@@ -239,6 +256,16 @@ iy1=iy*(t-tsept<timp);
     dydt(16,:) = (1/I(1,1))*(Ttm(1)+T(1)+(-izp1+izn1)*(ac+bc*tan(alp))/timp)+(I(2,2)-I(3,3))*y(17)*y(18); % alxTM
     dydt(17,:) = (1/I(2,2))*(Ttm(2)+T(2))+(I(3,3)-I(1,1))*y(16)*y(18);                                      % alyTM
     dydt(18,:) = (1/I(3,3))*(Ttm(3)+T(3)+(ixp1-ixn1)*(ac+bc*tan(alp))/timp)+(I(1,1)-I(2,2))*y(16)*y(17);  % alzTM
+
+    % if t > 2.6% && mod(floor(t*100),10)==0
+    %     plot(rtc1(1), rtc1(3), ".b");
+    %     hold on;
+    %     % plot(t, mt1v(2), ".r");
+    %     % plot(t, mt1v(3), ".g");
+    %     % xlim([-1,t]);
+    %     % ylim([-.1,.1]);
+    %     drawnow;
+    % end
     
 % MODIFIED EoMs (speeds code with contact assumptions, inaccurate)
 %     dydt(3,:) = y(4)*(cT1==cG1) + y(11)*cT1*~cG1 + vG1*cG1*~cT1;                   % vT1  
