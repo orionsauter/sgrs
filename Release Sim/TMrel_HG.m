@@ -14,11 +14,20 @@ else
     config_file = varargin{1};
 end
 config = readstruct(config_file);
-fields = fieldnames(config);
+% Hard code the field names to get the order right
+fields = {...
+    'run_name'; 'plots'; 'savedata'; 'saveplot'; 'tspan';...
+    'Ad_G1'; 'Ad_G2'; 'Ad_T1'; 'Ad_T2'; 'v_input'; 'ts1'; 'ts2';...
+    'tp'; 'tc'; 'sTM'; 'sEH'; 'd'; 'Lt'; 'alp'; 'ac'; 'bc'; 'rgf';...
+    'mG'; 'mT'; 'M'; 'I'; 'k'; 'kG'; 'kT'; 'ksi'; 'muT'; 'muG'; 'Vinj';...
+    'ixp'; 'ixn'; 'izp'; 'izn'; 'iy'; 'Fx'; 'Fz'; 'T'; 'timp'; 'tr';...
+    'xG10'; 'vG10'; 'xG20'; 'vG20'; 'xTM0'; 'vTM0'; 'bTM0'; 'wTM0'};
 for i = 1:numel(fields)
     % Assign values to variables. Using eval here is insecure, but where
     % would you even get a malicious config?
-    eval(fields{i}+"="+config.(fields{i})+";")
+    if isfield(config, fields{i})
+        eval(fields{i}+"="+config.(fields{i})+";");
+    end
 end
 
 timestamp = (num2str(fix(clock)));
