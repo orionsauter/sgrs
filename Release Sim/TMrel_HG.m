@@ -4,20 +4,30 @@
 % (TM) system according to paper "Prediction of the LISA-Pathfinder release
 % mechanism in-flight performance" and the spring-tip concept. Integrates ODEs with the use of ODE45.
 
-clear all, close all
+function TMrel_HG(varargin)
 tic
 
 %% Settings
-% global imp imn imy tsep1 tsep2 tsept
-config = jsondecode(regexprep(fileread("config.json"),"%[^\n]+\n","\n"));
+if isempty(varargin)
+    config_file = "config.xml";
+else
+    config_file = varargin{1};
+end
+config = readstruct(config_file);
 fields = fieldnames(config);
 for i = 1:numel(fields)
+    % Assign values to variables. Using eval here is insecure, but where
+    % would you even get a malicious config?
     eval(fields{i}+"="+config.(fields{i})+";")
 end
 
 timestamp = (num2str(fix(clock)));
 savingid = timestamp((~isspace(timestamp)));
-savepath = savingid;
+if exist("run_name", "var")
+    savepath = run_name + "_" + savingid;
+else
+    savepath = savingid;
+end
 
 %% Parameters
 
@@ -91,7 +101,7 @@ chki = 1;
 dur = tspan(end) - tspan(1);
 t_events = [];
 while t(end) < tspan(end)
-    if (tspan(end)-tspan(1))/dur > chkpts(chki)
+    if tspan(1)/dur > chkpts(chki)
         fprintf("%.2f: %.0f%%\n",toc,chkpts(chki)*100);
         chki = chki + 1;
     end
@@ -266,7 +276,8 @@ end
 % Saved report
 
 if savedata==1 || saveplot==1
-        mkdir(savingid)
+    mkdir(savepath)
+    copyfile(config_file,savepath);
 end
 
 if savedata==1
@@ -418,16 +429,18 @@ ylabel 'Displacement [\mum]'
 grid on
 
 if plots==1 && saveplot==1
-        cd(savepath)    
-        saveas(figure(1),['x_',savingid,'.png'])
-        saveas(figure(2),['vTM_',savingid,'.png'])
-        saveas(figure(3),['bTM_',savingid,'.png'])
-        saveas(figure(4),['wTM_',savingid,'.png'])
-        saveas(figure(5),['Fgf_',savingid,'.png'])
-        saveas(figure(6),['Frt_',savingid,'.png'])
-        saveas(figure(7),['Cont_',savingid,'.png'])
-        saveas(figure(8),['vGF_',savingid,'.png'])   
-        saveas(figure(10),['TMpos_',savingid,'.png'])   
+    if savedata~=1
+        cd(savepath)
+    end
+    saveas(figure(1),['x_',savingid,'.png'])
+    saveas(figure(2),['vTM_',savingid,'.png'])
+    saveas(figure(3),['bTM_',savingid,'.png'])
+    saveas(figure(4),['wTM_',savingid,'.png'])
+    saveas(figure(5),['Fgf_',savingid,'.png'])
+    saveas(figure(6),['Frt_',savingid,'.png'])
+    saveas(figure(7),['Cont_',savingid,'.png'])
+    saveas(figure(8),['vGF_',savingid,'.png'])   
+    saveas(figure(10),['TMpos_',savingid,'.png'])   
 end
 
 %% Send Email once it's done
@@ -438,6 +451,7 @@ end
 % 
 % sendolmail(to,subject,body)
 runtime = toc
+end
 
 function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
     [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG);
@@ -453,5 +467,3 @@ function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac
     isterminal = [1; 1; 1; 1; 1; 1; 1; 1];
     direction = [1; 1; 0; 0; 0; 0; 0; 0];
 end
-
-% function [amp, phase] = damped_osc(w, z, )
