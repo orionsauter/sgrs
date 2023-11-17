@@ -4,7 +4,7 @@ mkdir(study_name);
 for i=1:length(param_values)
     this_run = strcat(study_name, string(i));
     config.run_name = strcat("'",this_run,"'");
-    config.(param_name) = param_values(i);
+    config.(param_name) = mat2str(param_values(i,:));
     config.plots = 0;
     config.savedata = 1;
     config_file = strcat(study_name, '/', this_run, '.xml');
