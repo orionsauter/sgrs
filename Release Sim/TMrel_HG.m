@@ -4,29 +4,32 @@
 % (TM) system according to paper "Prediction of the LISA-Pathfinder release
 % mechanism in-flight performance" and the spring-tip concept. Integrates ODEs with the use of ODE45.
 
-function TMrel_HG(varargin)
+function [captured] = TMrel_HG(varargin)
 tic
 
 %% Settings
-if isempty(varargin)
-    config_file = "config.xml";
-else
-    config_file = varargin{1};
-end
-config = readstruct(config_file);
+p = inputParser;
+p.KeepUnmatched = true;
+addOptional(p,'config','config.xml');
+parse(p,varargin{:});
+config = readstruct(p.Results.config);
 % Hard code the field names to get the order right
 fields = {...
-    'run_name'; 'plots'; 'savedata'; 'saveplot'; 'tspan';...
+    'run_name'; 'plots'; 'savedata'; 'saveplot'; 'savestats'; 'tspan';...
     'Ad_G1'; 'Ad_G2'; 'Ad_T1'; 'Ad_T2'; 'v_input'; 'ts1'; 'ts2';...
     'tp'; 'tc'; 'sTM'; 'sEH'; 'd'; 'Lt'; 'alp'; 'ac'; 'bc'; 'rgf';...
     'mG'; 'mT'; 'M'; 'I'; 'k'; 'kG'; 'kT'; 'ksi'; 'muT'; 'muG'; 'Vinj';...
     'ixp'; 'ixn'; 'izp'; 'izn'; 'iy'; 'Fx'; 'Fz'; 'T'; 'timp'; 'tr';...
-    'xG10'; 'vG10'; 'xG20'; 'vG20'; 'xTM0'; 'vTM0'; 'bTM0'; 'wTM0'};
+    'xG10'; 'vG10'; 'xG20'; 'vG20'; 'xTM0'; 'vTM0'; 'bTM0'; 'wTM0'; 'vrsy'};
 for i = 1:numel(fields)
     % Assign values to variables. Using eval here is insecure, but where
     % would you even get a malicious config?
     if isfield(config, fields{i})
         eval(fields{i}+"="+config.(fields{i})+";");
+    end
+    % Arguments override config
+    if isfield(p.Unmatched, fields{i})
+        eval(fields{i}+"="+p.Unmatched.(fields{i})+";");
     end
 end
 
@@ -44,7 +47,9 @@ end
 switch v_input
     case 'con'
         vrsx = 0;
-        vrsy = 2e-6; % [m/s]
+        if ~exist('vrsy','var')
+            vrsy = 2e-6; % [m/s]
+        end
     case 'ts'
         load('v_input_2ums_array.mat') % retraction speed time-series
 end
@@ -105,19 +110,13 @@ t = [tspan(1), tspan(1)];
 y = transpose(y0);
 t_out = [];
 y_out = [];
-chkpts = 0:0.05:1.0;
-chki = 1;
-dur = tspan(end) - tspan(1);
 t_events = [];
 while t(end) < tspan(end)
-    if tspan(1)/dur > chkpts(chki)
-        fprintf("%.2f: %.0f%%\n",toc,chkpts(chki)*100);
-        chki = chki + 1;
-    end
     if numel(ie) > 0
         % Event occurred
         tspan(1) = min(te);
         t_events = cat(1, t_events, tspan(1));
+        ie = ie(te<=tspan(1),:);
         ye = ye(te<=tspan(1),:);
         te = te(te<=tspan(1),:);
         y0 = ye(1,:);
@@ -184,13 +183,13 @@ while t(end) < tspan(end)
     if any(ie == 7)
         e7 = find(ie==7,1);
         y0(:,3) = ye(e7,1) - Lt;
-        y0(:,4) = y0(:,1);
+        y0(:,4) = vrsy;
         fprintf("%f: GF1/RT1 contact\n",te(e7));
     end
     if any(ie == 8)
         e8 = find(ie==8,1);
-        y0(:,5) = ye(e8,2) + Lt;
-        y0(:,6) = y0(:,2);
+        y0(:,5) = Lt - ye(e8,2);
+        y0(:,6) = -vrsy;
         fprintf("%f: GF2/RT2 contact\n",te(e8));
     end
     y0(:,23) = y0(:,21) & y0(:,22);
@@ -284,7 +283,9 @@ end
 
 % Saved report
 
-if savedata==1 || saveplot==1
+captured = 4.5e-6 - abs(vTM(end,2));
+
+if savedata==1 || saveplot==1 || savestats==1
     mkdir(savepath)
     copyfile(config_file,savepath);
 end
@@ -306,6 +307,24 @@ if savedata==1
         fprintf(fileID,' TM stopped by actuation with SF = %.1f\n',4.5e-6/abs(vTM(end,2)));
     end
     fclose(fileID);
+    cd('..');
+end
+
+if savestats==1
+    cd(savepath)
+    stats = struct();
+    stats.xG1 = get_stats(xG1);
+    stats.xG2 = get_stats(xG2);
+    stats.xT1 = get_stats(xT1);
+    stats.vT1 = get_stats(vT1);
+    stats.xT2 = get_stats(xT2);
+    stats.vT2 = get_stats(vT2);
+    stats.xTM = get_stats(xTM);
+    stats.vTM = get_stats(vTM);
+    stats.bTM = get_stats(bTM);
+    stats.wTM = get_stats(wTM);
+    save(['TMrel_',savingid,'_stats.mat'],'stats');
+    cd('..');
 end
 
 %% Plots
@@ -409,7 +428,6 @@ xlabel 'Time [s]'
 ylabel 'Speed [m/s]'
 legend vGF1 -vGF2
 grid on
-end
 
 figure(9) % 3D TM position in EH
 idx = [4 8 5 1 4; 1 5 6 2 1; 2 6 7 3 2; 3 7 8 4 3; 5 8 7 6 5; 1 4 3 2 1]'; % cube side index
@@ -436,11 +454,10 @@ legend x z
 xlabel 'Time [s]'
 ylabel 'Displacement [\mum]'
 grid on
+end
 
 if plots==1 && saveplot==1
-    if savedata~=1
-        cd(savepath)
-    end
+    cd(savepath)
     saveas(figure(1),['x_',savingid,'.png'])
     saveas(figure(2),['vTM_',savingid,'.png'])
     saveas(figure(3),['bTM_',savingid,'.png'])
@@ -449,7 +466,8 @@ if plots==1 && saveplot==1
     saveas(figure(6),['Frt_',savingid,'.png'])
     saveas(figure(7),['Cont_',savingid,'.png'])
     saveas(figure(8),['vGF_',savingid,'.png'])   
-    saveas(figure(10),['TMpos_',savingid,'.png'])   
+    saveas(figure(10),['TMpos_',savingid,'.png'])
+    cd('..')
 end
 
 %% Send Email once it's done
@@ -475,4 +493,12 @@ function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac
     % isterminal = [1; 1; 1; 1; 0; 0; 0; 0];
     isterminal = [1; 1; 1; 1; 1; 1; 1; 1];
     direction = [1; 1; 0; 0; 0; 0; 0; 0];
+end
+
+function [stats] = get_stats(var)
+    stats = struct();
+    stats.max = max(abs(var));
+    stats.final = var(end,:);
+    stats.mean = mean(var);
+    stats.std = std(var);
 end
