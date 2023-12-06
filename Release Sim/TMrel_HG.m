@@ -103,14 +103,19 @@ jpatt(18,[3:9,13:15]) = 1;
 
 %% Integration
 % options = odeset("JPattern",jpatt,"Vectorized","on","Events",@unbond);
-options = odeset("JPattern",jpatt,"Events",@(t,y)unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG));
+options = odeset("JPattern",jpatt, "RelTol", 1e-2,...
+    "Events",@(t,y)unbond(t,y,ts1,ts2,tp,tc,sTM,sEH,d,Lt,...
+                          alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,...
+                          b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,...
+                          X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,...
+                          Fx,Fz,tr,timp,rgf,muT,muG));
 %[t,y] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0);%, options);
 ie = [];
 t = [tspan(1), tspan(1)];
 y = transpose(y0);
 t_out = [];
 y_out = [];
-t_events = [];
+t_events = [tspan(1)];
 while t(end) < tspan(end)
     if numel(ie) > 0
         % Event occurred
@@ -197,13 +202,20 @@ while t(end) < tspan(end)
     [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     % [t,y,te,ye,ie] = ode23s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
-    if numel(ie) > 0
-        % fprintf("%f: %d", te(1), ie(1));
+    if numel(ie) > 0 && all(ie < 9) % Don't trim collision events
         t_out = cat(1, t_out(1:end-1,:), t(t<=te(1),:));
         y_out = cat(1, y_out(1:end-1,:), y(t<=te(1),:));
     else
+        % No events or contacted EH, so use full series
         t_out = cat(1, t_out(1:end-1,:), t);
         y_out = cat(1, y_out(1:end-1,:), y);
+        if numel(ie) > 0
+            condition = ie;
+            fprintf("Final t=%f.\nEvent t=%f.", t(end), te(end));
+        else
+            condition = 0;
+        end
+        break
     end
     % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HGvec(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
 end
@@ -271,19 +283,37 @@ cG_TM2=abs(xG2-xTM(:,2))<tr;
 cRT_TM1=abs(xT1-xTM(:,2))<tr;
 cRT_TM2=abs(xT2-xTM(:,2))<tr;
 
+bounds = bbox(xTM', bTM', sTM);
+hs = sEH/2;
+edges = [min(bounds(:,1)), min(bounds(:,2)), min(bounds(:,3));...
+         max(bounds(:,1)), max(bounds(:,2)), max(bounds(:,3))];
+posv = (vTM(end,:)>0);
+% Find extent of sides in direction of travel
+lead_sides = edges(1,:);
+lead_sides(posv) = edges(2,posv);
+maxarg = vTM(end,:)./lead_sides .* sqrt(M/abs(kGRS));
+maxx = lead_sides./sqrt(1+maxarg.^2) + vTM(end,:).*sqrt(M/abs(kGRS)).*maxarg./sqrt(1+maxarg.^2);
+
 %% Output messages
 
 fprintf('\n\nOutput\n\n Max. TM Residual Velocity = %.3d m/s\n',max(abs(vTM(:,2))))
 fprintf(' Final TM Residual Velocity = %.3d m/s\n',abs(vTM(end,2)))
 if abs(vTM(end,2))>=4.5e-6     % Max residual velocity from "ResVel_2DOF.m"
-    fprintf(' TM collision with EH\n')
+    fprintf(' Excess y-velocity to avoid collision with EH\n')
+elseif condition==9 || abs(maxx(1)) > hs
+    fprintf(' TM collision with EH x-face\n')
+elseif condition==10 || abs(maxx(2)) > hs
+    fprintf(' TM collision with EH y-face\n')
+elseif condition==11 || abs(maxx(3)) > hs
+    fprintf(' TM collision with EH z-face\n')
 else
     fprintf(' TM stopped by actuation with SF = %.1f\n',4.5e-6/abs(vTM(end,2)))
 end
 
 % Saved report
 
-captured = 4.5e-6 - abs(vTM(end,2));
+% All positive for success
+captured = hs - abs(maxx);
 
 if savedata==1 || saveplot==1 || savestats==1
     mkdir(savepath)
@@ -480,7 +510,7 @@ end
 runtime = toc
 end
 
-function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
+function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,sEH,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
     [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG);
     bond1 = y(19,1,:);
     bond2 = y(20,1,:);
@@ -489,10 +519,47 @@ function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac
     bond2 = 1*(dLg2<=0)+1*(dLg2>0 & dLg2<tr & bond2==1);
     c1 = (y(1,1,:)-y(3,1,:)-Lt); % GF RT contact
     c2 = (y(5,1,:)-y(2,1,:)-Lt);
-    value = [dLg1-tr; dLg2-tr; bond1; bond2; dLt1; dLt2; c1; c2];
-    % isterminal = [1; 1; 1; 1; 0; 0; 0; 0];
-    isterminal = [1; 1; 1; 1; 1; 1; 1; 1];
-    direction = [1; 1; 0; 0; 0; 0; 0; 0];
+    bounds = bbox(y(7:9,1,:), y(13:15,1,:), sTM);
+    hs = sEH/2;
+    gapx = min([hs-max(bounds(:,1)),hs+min(bounds(:,1))]);
+    gapy = min([hs-max(bounds(:,2)),hs+min(bounds(:,2))]);
+    gapz = min([hs-max(bounds(:,3)),hs+min(bounds(:,3))]);
+    value = [dLg1-tr; dLg2-tr;...   % 1-2
+             bond1; bond2;...       % 3-4
+             dLt1; dLt2;...         % 5-6
+             c1; c2;...             % 7-8
+             gapx; gapy; gapz];     % 9-11
+    isterminal = [1; 1;...
+                  1; 1;...
+                  1; 1;...
+                  1; 1;...
+                  1; 1; 1];
+    direction = [1; 1;...
+                 0; 0;...
+                 0; 0;...
+                 0; 0;...
+                 -1; -1; -1];
+end
+
+function [bounds] = bbox(rTM, bTM, sTM)
+    hs = sTM/2;
+    corners = [rTM+[hs;hs;hs], rTM+[-hs;hs;hs],...
+               rTM+[hs;-hs;hs], rTM+[-hs;-hs;hs],...
+               rTM+[hs;hs;-hs], rTM+[-hs;hs;-hs],...
+               rTM+[hs;-hs;-hs], rTM+[-hs;-hs;-hs]];
+    psi=bTM(1); % angle about x
+    the=bTM(2); % angle about y
+    phi=bTM(3); % angle about z
+    
+    % rotational matrix of TM
+    R=[cos(the)*cos(phi), cos(the)*sin(phi) ,-sin(the);...
+       sin(psi)*sin(the)*cos(phi)-cos(psi)*sin(phi),...
+       sin(psi)*sin(the)*sin(phi)+cos(psi)*cos(phi),...
+       sin(psi)*cos(the);...
+       cos(psi)*sin(the)*cos(phi)+sin(psi)*sin(phi),...
+       cos(psi)*sin(the)*sin(phi)-sin(psi)*cos(phi),...
+       cos(psi)*cos(the)];
+    bounds = (R*corners)';
 end
 
 function [stats] = get_stats(var)
