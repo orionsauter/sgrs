@@ -317,7 +317,7 @@ captured = hs - abs(maxx);
 
 if savedata==1 || saveplot==1 || savestats==1
     mkdir(savepath)
-    copyfile(config_file,savepath);
+    copyfile(p.Results.config,savepath);
 end
 
 if savedata==1
