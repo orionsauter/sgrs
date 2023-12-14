@@ -11,6 +11,7 @@ tic
 p = inputParser;
 p.KeepUnmatched = true;
 addOptional(p,'config','config.xml');
+addOptional(p,'estimateGF',0);
 parse(p,varargin{:});
 config = readstruct(p.Results.config);
 % Hard code the field names to get the order right
@@ -50,6 +51,7 @@ switch v_input
         if ~exist('vrsy','var')
             vrsy = 2e-6; % [m/s]
         end
+        tgf0 = min([abs(xG10/vrsy),abs(xG20/vrsy)]);
     case 'ts'
         load('v_input_2ums_array.mat') % retraction speed time-series
 end
@@ -116,6 +118,32 @@ y = transpose(y0);
 t_out = [];
 y_out = [];
 t_events = [tspan(1)];
+if p.Results.estimateGF
+    [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,...
+        ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,...
+        ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,...
+        X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG),...
+        [tspan(1),tspan(1)+0.054], y0, options);
+    t_out = cat(1, t_out(1:end-1,:), t);
+    y_out = cat(1, y_out(1:end-1,:), y);
+    xTM = y(:,7:9);
+    [yest, ydest] = FitGF(t,xTM,0.004,0.054);
+    dfill = (0.01/length(t));
+    tfill = ((tspan(1)+0.01):dfill:tgf0)';
+    t_out = cat(1, t_out(1:end-1,:), tfill);
+    yfill = repmat(y(end,:),length(tfill),1);
+    yfill(:,8) = yest(tfill);
+    yfill(:,11) = ydest(tfill);
+    yfill(:,1) = y(end,1) + vrsy*(tfill-t(end));
+    yfill(:,2) = y(end,2) - vrsy*(tfill-t(end));
+    y_out = cat(1, y_out(1:end-1,:), yfill);
+    y0 = yfill(end,:);
+    tspan(1) = tgf0;
+    t = [tspan(1), tspan(1)];
+else
+    y0 = y;
+end
+
 while t(end) < tspan(end)
     if numel(ie) > 0
         % Event occurred
@@ -135,9 +163,6 @@ while t(end) < tspan(end)
             y0 = y(1,:);
             fprintf("t = %f: Integration stopped\n",t(end));
             break
-        else
-            % Start of integration
-            y0 = y(1,:);
         end
     end
     if any(ie == 1)
@@ -322,7 +347,7 @@ end
 
 if savedata==1
     cd(savepath)
-    save(['TMrel_',savingid,'.mat'],'t','xG1','xG2','xT1','vT1','xT2','vT2','xTM','vTM','bTM','wTM','-v7.3')
+    save(['TMrel_',savingid,'.mat'],'t','xG1','xG2','xT1','vT1','xT2','vT2','xTM','vTM','bTM','wTM','bond1','bond2','-v7.3')
     fileID = fopen(['Output_',savingid,'.txt'],'w');
     fprintf(fileID,'Input\n\n Adhesion Set:\n  GF1 = %.0f\n  GF2 = %.0f\n  RT1 = %.0f\n  RT2 = %.0f \n',Ad_G1,Ad_G2,Ad_T1,Ad_T2);
     fprintf(fileID,' Retraction start:\n  GF1 = %.2d s\n  GF2 = %.2d s \n',ts1,ts2);
