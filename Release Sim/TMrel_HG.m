@@ -12,6 +12,7 @@ p = inputParser;
 p.KeepUnmatched = true;
 addOptional(p,'config','config.xml');
 addOptional(p,'estimateGF',0);
+addOptional(p,'useEnergy',0);
 parse(p,varargin{:});
 config = readstruct(p.Results.config);
 % Hard code the field names to get the order right
@@ -105,7 +106,7 @@ jpatt(18,[3:9,13:15]) = 1;
 
 %% Integration
 % options = odeset("JPattern",jpatt,"Vectorized","on","Events",@unbond);
-options = odeset("JPattern",jpatt, "RelTol", 1e-2,...
+options = odeset("JPattern",jpatt, "RelTol", 1e-2, "AbsTol", 1e-6,...
     "Events",@(t,y)unbond(t,y,ts1,ts2,tp,tc,sTM,sEH,d,Lt,...
                           alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,...
                           b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,...
@@ -157,6 +158,37 @@ while t(end) < tspan(end)
             ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,...
             vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,...
             I,T,Fx,Fz,tr,timp,rgf,muT,muG);
+        xG1=y_out(end,1);
+        xG2=y_out(end,2);
+        xT1=y_out(end,3);
+        xT2=y_out(end,5);
+        xTM=y_out(end,7:9);
+        vTM=y_out(end,10:12);
+        bTM=y_out(end,13:15);
+
+        fprintf("%f: Release tip contact state is %i, %i.\n", t_out(end), dLt1 < 0, dLt2 < 0);
+        
+        % No GF contact and 1+ RT separated
+        if p.Results.useEnergy && all(ie > 2) && (dLt1 > 0 || dLt2 > 0)
+            dT1 = xG1-xT1;
+            dT2 = xT2-xG2;
+            E = 0.5*kT*dLt1^2*(dLt1<0) + 0.5*kT*dLt2^2*(dLt2<0) + ...
+                0.5*k*(dT1^2-d^2)*(dT1>d) + 0.5*k*(dT2^2-d^2)*(dT2>d);
+            dv = (-(dLt1<0)+(dLt2<0))*sqrt(2*E/M);
+            fprintf("%f: RT impulse = %g.\n", t_out(end), dv);
+            maxx = check_capture(xTM, bTM, vTM+[0,dv,0], M, sTM, kGRS);
+            captured = sEH/2 - abs(maxx);
+            if all(captured>0)
+                fprintf("%f: Release tips free and vel within actuation.\n", t_out(end));
+                condition = 0;
+                break
+            end
+            if abs(vTM(:,2)) < vrsy
+                fprintf("%f: Release tips free and TM vel slower than GF.\n", t_out(end));
+                condition = 0;
+                break
+            end
+        end
     else
         if t(1) > tspan(1) && t(end) < tspan(end)
             tspan(1) = t(end);
@@ -198,16 +230,26 @@ while t(end) < tspan(end)
     % RT to TM contact – Set RT vel to TM y
     if any(ie == 5)
         e5 = find(ie==5,1);
-        y0(:,3) = y0(:,3) + dLt1;
-        y0(:,4) = y0(:,11);
-        fprintf("%f: RT1/TM contact\n",te(e5));
+        if dLt1 < 0
+            y0(:,3) = y0(:,3) + dLt1;
+            % y0(:,3) = y0(:,8) + sTM/2;
+            y0(:,4) = y0(:,11);
+            fprintf("%f: RT1/TM in contact\n",te(e5));
+        else
+            fprintf("%f: RT1/TM lost contact\n",te(e5));
+        end
     end
     % RT to TM contact – Set RT vel to TM y
     if any(ie == 6)
         e6 = find(ie==6,1);
-        y0(:,5) = y0(:,5) - dLt2;
-        y0(:,6) = y0(:,11);
-        fprintf("%f: RT2/TM contact\n",te(e6));
+        if dLt2 < 0
+            y0(:,5) = y0(:,5) - dLt2;
+            % y0(:,5) = y0(:,8) - sTM/2;
+            y0(:,6) = y0(:,11);
+            fprintf("%f: RT2/TM in contact\n",te(e6));
+        else
+            fprintf("%f: RT2/TM lost contact\n",te(e6));
+        end
     end
     % RT to GF contact – Set RT vel to GF, and pos to full length
     if any(ie == 7)
@@ -236,7 +278,7 @@ while t(end) < tspan(end)
         y_out = cat(1, y_out(1:end-1,:), y);
         if numel(ie) > 0
             condition = ie;
-            fprintf("Final t=%f.\nEvent t=%f.", t(end), te(end));
+            fprintf("Final t=%f.\nEvent t=%f.\n", t(end), te(end));
         else
             condition = 0;
         end
@@ -308,16 +350,7 @@ cG_TM2=abs(xG2-xTM(:,2))<tr;
 cRT_TM1=abs(xT1-xTM(:,2))<tr;
 cRT_TM2=abs(xT2-xTM(:,2))<tr;
 
-bounds = bbox(xTM', bTM', sTM);
-hs = sEH/2;
-edges = [min(bounds(:,1)), min(bounds(:,2)), min(bounds(:,3));...
-         max(bounds(:,1)), max(bounds(:,2)), max(bounds(:,3))];
-posv = (vTM(end,:)>0);
-% Find extent of sides in direction of travel
-lead_sides = edges(1,:);
-lead_sides(posv) = edges(2,posv);
-maxarg = vTM(end,:)./lead_sides .* sqrt(M/abs(kGRS));
-maxx = lead_sides./sqrt(1+maxarg.^2) + vTM(end,:).*sqrt(M/abs(kGRS)).*maxarg./sqrt(1+maxarg.^2);
+maxx = check_capture(xTM, bTM, vTM, M, sTM, kGRS);
 
 %% Output messages
 
@@ -325,11 +358,11 @@ fprintf('\n\nOutput\n\n Max. TM Residual Velocity = %.3d m/s\n',max(abs(vTM(:,2)
 fprintf(' Final TM Residual Velocity = %.3d m/s\n',abs(vTM(end,2)))
 if abs(vTM(end,2))>=4.5e-6     % Max residual velocity from "ResVel_2DOF.m"
     fprintf(' Excess y-velocity to avoid collision with EH\n')
-elseif condition==9 || abs(maxx(1)) > hs
+elseif condition==9 || abs(maxx(1)) > sEH/2
     fprintf(' TM collision with EH x-face\n')
-elseif condition==10 || abs(maxx(2)) > hs
+elseif condition==10 || abs(maxx(2)) > sEH/2
     fprintf(' TM collision with EH y-face\n')
-elseif condition==11 || abs(maxx(3)) > hs
+elseif condition==11 || abs(maxx(3)) > sEH/2
     fprintf(' TM collision with EH z-face\n')
 else
     fprintf(' TM stopped by actuation with SF = %.1f\n',4.5e-6/abs(vTM(end,2)))
@@ -338,7 +371,7 @@ end
 % Saved report
 
 % All positive for success
-captured = hs - abs(maxx);
+captured = sEH/2 - abs(maxx);
 
 if savedata==1 || saveplot==1 || savestats==1
     mkdir(savepath)
@@ -562,7 +595,7 @@ function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,sEH,d,Lt,al
     direction = [1; 1;...
                  0; 0;...
                  0; 0;...
-                 0; 0;...
+                 1; 1;...
                  -1; -1; -1];
 end
 
@@ -585,6 +618,18 @@ function [bounds] = bbox(rTM, bTM, sTM)
        cos(psi)*sin(the)*sin(phi)-sin(psi)*cos(phi),...
        cos(psi)*cos(the)];
     bounds = (R*corners)';
+end
+
+function [maxx] = check_capture(xTM, bTM, vTM, M, sTM, kGRS)
+    bounds = bbox(xTM', bTM', sTM);
+    edges = [min(bounds(:,1)), min(bounds(:,2)), min(bounds(:,3));...
+             max(bounds(:,1)), max(bounds(:,2)), max(bounds(:,3))];
+    posv = (vTM(end,:)>0);
+    % Find extent of sides in direction of travel
+    lead_sides = edges(1,:);
+    lead_sides(posv) = edges(2,posv);
+    maxarg = vTM(end,:)./lead_sides .* sqrt(M/abs(kGRS));
+    maxx = lead_sides./sqrt(1+maxarg.^2) + vTM(end,:).*sqrt(M/abs(kGRS)).*maxarg./sqrt(1+maxarg.^2);
 end
 
 function [stats] = get_stats(var)

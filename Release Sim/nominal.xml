@@ -1,0 +1,77 @@
+<config>
+<run_name>'Nominal'</run_name>
+<plots>0</plots>
+<savedata>0</savedata>
+<saveplot>0</saveplot>
+<savestats>1</savestats>
+
+<tspan>[0 20]</tspan> <!-- Time array [s] -->
+
+<Ad_G1>0</Ad_G1> <!-- GF1 adhesion force profile -->
+<Ad_G2>0</Ad_G2> <!-- GF2 -->
+<Ad_T1>0</Ad_T1> <!-- RT1 -->
+<Ad_T2>0</Ad_T2> <!-- RT2 -->
+
+<v_input>'con'</v_input> <!-- 'con' for constant speed (faster simulation), 'ts' for time series speed profile (slower sim) -->
+<vrsy>2e-6</vrsy> <!-- GF retraction y-vel for constant speed -->
+
+<!-- Parameters -->
+
+<!-- Time -->
+<ts1>0</ts1> <!-- [s] GF1 actuation delay time -->
+<ts2>0</ts2> <!-- [s] GF2 actuation delay time -->
+<tp>1</tp> <!-- [s] pause retraction of GFs -->
+<tc>6</tc> <!-- [s] continue retraction of GFs -->
+
+<!-- Dimensions -->
+<sTM>30e-3</sTM> <!-- [m] TM cube side length -->
+<sEH>32e-3</sEH> <!-- [m] EH cube side length -->
+<d>3.8e-3</d> <!-- [m] Offset between GF and unstretched spring length -->
+<Lt>0.5e-4</Lt> <!-- [m] Maximum length that the RT extends from the GF -->
+<alp>45*pi/180</alp> <!-- [rad] TM indent inclination -->
+<ac>14.5e-3</ac> <!-- [m] distance of TM-GF contact point along y -->
+<bc>2.5e-3</bc> <!-- [m] distance of TM-GF contact point ialong x or z -->
+<rgf>4e-3/2</rgf> <!-- [m] radius of GF tip -->
+
+<!-- Mass & Inertia -->
+<mG>(143/1000^3)*4430</mG> <!-- [kg] GF mass - annealed, grade 5 Titanium -->
+<mT>(4*pi*2.5^2/1000^3)*3200</mT> <!-- [kg] RT mass - Silicon Nitride -->
+<M>0.5378</M> <!-- [kg] ILaRIS TM mass - 70Au-30Pt -->
+<I>eye(3)*(1/6)*M*sTM^2</I> <!-- [kg-m^2] TM matrix of inertia -->
+
+<!-- Spring, Damping, & Friction -->
+<k>1.317e4</k> <!-- [N/m] Spring constant -->
+<kG>114e9*8.6/(16*1000)</kG> <!-- [N/m] GF equivalent spring constant (from GF prelim geometry) -->
+<kT>(pi*2.5e-3^2)*290e9/4e-3</kT> <!-- [N/m] RT equivalent spring constant -->
+<ksi>0.8</ksi> <!-- Damping ratio -->
+<muT>0.1</muT> <!-- Static friction coefficient of silicon nitride ceramic tips -->
+<muG>0.1</muG> <!-- Static friction coefficient of 70Au-30Pt GFs (assumed) -->
+
+<!-- Electrostatic stiffness -->
+<Vinj>4</Vinj> <!-- [V] Injection signal bias -->
+
+<!-- Impulses (from GPRM data) -->
+<ixp>75e-6</ixp> <!-- [kg m/s] TM release x impulse on CGF side -->
+<ixn>85e-6</ixn> <!-- [kg m/s] TM release x impulse on PGF side -->
+<izp>-40e-6</izp> <!-- [kg m/s] TM release z impulse on CGF side -->
+<izn>-20e-6</izn> <!-- [kg m/s] TM release z impulse on PGF side -->
+<iy>60e-6</iy> <!-- [kg m/s] TM release residual y impulse -->
+<Fx>0</Fx> <!-- [N] Lateral force x -->
+<Fz>0</Fz> <!-- [N] Lateral force y -->
+<T>[0,0,0]</T> <!-- [N-m] Pure torque -->
+<timp>0.5</timp> <!-- [s] time interval in which to apply lateral impulse -->
+
+<!-- Adhesion force -->
+<tr>4e-6</tr> <!-- [m] bond elongation threshold (if exceeded the adhesion bond is broken) -->
+
+<!-- Initial Conditions -->
+<xG10>-3.26e-6</xG10> <!-- [m] GF1 position -->
+<vG10>0</vG10> <!-- [m/s] GF1 speed -->
+<xG20>3.26e-6</xG20> <!-- [m] GF2 position -->
+<vG20>0</vG20> <!-- [m/s] GF1 speed -->
+
+<xTM0>[0,0,0]</xTM0> <!-- [m] TM position  -->
+<vTM0>[0,0,0]</vTM0> <!-- [m/s] TM velocity -->
+<bTM0>[0,0,0]</bTM0> <!-- [rad] TM orientation (body system) -->
+<wTM0>[0,0,0]</wTM0> <!-- [rad/s] TM angular velocity (body system) -->
+</config>
