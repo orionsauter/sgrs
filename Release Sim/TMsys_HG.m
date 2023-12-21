@@ -230,7 +230,11 @@ iy1=iy*(t-tsept<timp);
     %     dydt(4,:) = 0;
     % else
         dydt(3,:) = y(4); % vT1
+    if cG1
+        dydt(4,:) = 0;
+    else
         dydt(4,:) = (1/mT)*(k*(yo(1)-yo(3)-d)+b*(vG1-y(4))+Fc1-Ft1v(2)); % aT1
+    end
     % end
     % if cT2
     %     dydt(5,:) = y(11);
@@ -240,7 +244,11 @@ iy1=iy*(t-tsept<timp);
     %     dydt(6,:) = 0;
     % else
         dydt(5,:) = y(6); % vT2
+    if cG2
+        dydt(6,:) = 0;
+    else
         dydt(6,:) = (1/mT)*(k*(yo(2)-yo(5)+d)+b*(vG2-y(6))-Fc2-Ft2v(2)); % aT2
+    end
     % end
 
   % Test Mass (6 DOF)
