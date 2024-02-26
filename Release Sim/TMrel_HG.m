@@ -4,7 +4,7 @@
 % (TM) system according to paper "Prediction of the LISA-Pathfinder release
 % mechanism in-flight performance" and the spring-tip concept. Integrates ODEs with the use of ODE45.
 
-function [captured] = TMrel_HG(varargin)
+function [captured, runtime] = TMrel_HG(varargin)
 tic
 
 %% Settings
@@ -12,6 +12,7 @@ p = inputParser;
 p.KeepUnmatched = true;
 addOptional(p,'config','config.xml');
 addOptional(p,'estimateGF',0);
+addOptional(p,'estimateRT',0);
 addOptional(p,'useEnergy',0);
 parse(p,varargin{:});
 config = readstruct(p.Results.config);
@@ -22,7 +23,7 @@ fields = {...
     'tp'; 'tc'; 'sTM'; 'sEH'; 'd'; 'Lt'; 'alp'; 'ac'; 'bc'; 'rgf';...
     'mG'; 'mT'; 'M'; 'I'; 'k'; 'kG'; 'kT'; 'ksi'; 'muT'; 'muG'; 'Vinj';...
     'ixp'; 'ixn'; 'izp'; 'izn'; 'iy'; 'Fx'; 'Fz'; 'T'; 'timp'; 'tr';...
-    'xG10'; 'vG10'; 'xG20'; 'vG20'; 'xTM0'; 'vTM0'; 'bTM0'; 'wTM0'; 'vrsy'};
+    'xG10'; 'vG10'; 'xG20'; 'vG20'; 'xTM0'; 'vTM0'; 'bTM0'; 'wTM0'; 'vrsy'; 'posTol'; 'velTol'};
 for i = 1:numel(fields)
     % Assign values to variables. Using eval here is insecure, but where
     % would you even get a malicious config?
@@ -87,7 +88,17 @@ vT10=0; % [m/s] RT1 speed
 xT20=k*d/kT;%k*d/kT-sTM/2;%0; % [m] RT2 position
 vT20=0; % [m/s] RT2 speed 
 
-y0 = [xG10 ; xG20 ; xT10 ; vT10 ; xT20 ; vT20 ; xTM0' ; vTM0' ; bTM0' ; wTM0'; bond1; bond2; imp; imn; imy; tsep1; tsep2; tsept];
+y0 =     [xG10; xG20; xT10; vT10; xT20; vT20;
+          xTM0'; vTM0';
+          bTM0'; wTM0';
+          bond1; bond2; imp; imn; imy; tsep1; tsep2; tsept];
+% posTol = 5e-7;
+% velTol = 5e-7;
+infTol = 1e3;
+absTol = [posTol; posTol; posTol; velTol; posTol; velTol; 
+          posTol; posTol; posTol; velTol; velTol; velTol; 
+          posTol; posTol; posTol; velTol; velTol; velTol;
+          infTol; infTol; infTol; infTol; infTol; infTol; infTol; infTol];
 jpatt = zeros([numel(y0),numel(y0)]);
 jpatt(3,[4,11]) = 1;
 jpatt(5,[6,11]) = 1;
@@ -106,12 +117,12 @@ jpatt(18,[3:9,13:15]) = 1;
 
 %% Integration
 % options = odeset("JPattern",jpatt,"Vectorized","on","Events",@unbond);
-options = odeset("JPattern",jpatt, "RelTol", 1e-2, "AbsTol", 1e-6,...
+options = odeset("JPattern",jpatt, "RelTol", 1e-2, "AbsTol", absTol,...
     "Events",@(t,y)unbond(t,y,ts1,ts2,tp,tc,sTM,sEH,d,Lt,...
                           alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,...
                           b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,...
                           X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,...
-                          Fx,Fz,tr,timp,rgf,muT,muG));
+                          Fx,Fz,tr,timp,rgf,muT,muG,p.Results.estimateRT));
 %[t,y] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0);%, options);
 ie = [];
 t = [tspan(1), tspan(1)];
@@ -119,17 +130,19 @@ y = transpose(y0);
 t_out = [];
 y_out = [];
 t_events = [tspan(1)];
+condition = 0;
 if p.Results.estimateGF
+    estT = 0.1*min(-xG10,xG20)/vrsy;
     [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,...
         ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,...
         ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,...
         X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG),...
-        [tspan(1),tspan(1)+0.054], y0, options);
+        [tspan(1),tspan(1)+estT], y0, options);
     t_out = cat(1, t_out(1:end-1,:), t);
     y_out = cat(1, y_out(1:end-1,:), y);
     xTM = y(:,7:9);
-    [yest, ydest] = FitGF(t,xTM,0.004,0.054);
-    dfill = (0.01/length(t));
+    [yest, ydest] = FitGF(t,xTM,t_out(1,:),t_out(end,:));
+    dfill = 1e-6;%(estT/length(t));
     tfill = ((tspan(1)+0.01):dfill:tgf0)';
     t_out = cat(1, t_out(1:end-1,:), tfill);
     yfill = repmat(y(end,:),length(tfill),1);
@@ -157,7 +170,7 @@ while t(end) < tspan(end)
         [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(tspan(1),y0',...
             ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,...
             vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,...
-            I,T,Fx,Fz,tr,timp,rgf,muT,muG);
+            I,T,Fx,Fz,tr,timp,rgf,muT,muG,p.Results.estimateRT);
         xG1=y_out(end,1);
         xG2=y_out(end,2);
         xT1=y_out(end,3);
@@ -166,7 +179,7 @@ while t(end) < tspan(end)
         vTM=y_out(end,10:12);
         bTM=y_out(end,13:15);
 
-        fprintf("%f: Release tip contact state is %i, %i.\n", t_out(end), dLt1 < 0, dLt2 < 0);
+        % fprintf("%f: Release tip contact state is %i, %i.\n", t_out(end), dLt1 < 0, dLt2 < 0);
         
         % No GF contact and 1+ RT separated
         if p.Results.useEnergy && all(ie > 2) && (dLt1 > 0 || dLt2 > 0)
@@ -266,7 +279,7 @@ while t(end) < tspan(end)
     end
     y0(:,23) = y0(:,21) & y0(:,22);
     y0(:,26) = max(y0(:,24),y0(:,25)).*y0(:,23) + -timp.*~y0(:,23);
-    [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
+    [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG,p.Results.estimateRT), tspan, y0, options);
     % [t,y,te,ye,ie] = ode23s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     if numel(ie) > 0 && all(ie < 9) % Don't trim collision events
@@ -372,6 +385,7 @@ end
 
 % All positive for success
 captured = sEH/2 - abs(maxx);
+runtime = toc
 
 if savedata==1 || saveplot==1 || savestats==1
     mkdir(savepath)
@@ -383,6 +397,7 @@ if savedata==1
     save(['TMrel_',savingid,'.mat'],'t','xG1','xG2','xT1','vT1','xT2','vT2','xTM','vTM','bTM','wTM','bond1','bond2','-v7.3')
     fileID = fopen(['Output_',savingid,'.txt'],'w');
     fprintf(fileID,'Input\n\n Adhesion Set:\n  GF1 = %.0f\n  GF2 = %.0f\n  RT1 = %.0f\n  RT2 = %.0f \n',Ad_G1,Ad_G2,Ad_T1,Ad_T2);
+    fprintf(fileID,' Tolerance:\n  Pos = %.2d m\n  Vel = %.2d m/s \n',posTol,velTol);
     fprintf(fileID,' Retraction start:\n  GF1 = %.2d s\n  GF2 = %.2d s \n',ts1,ts2);
     fprintf(fileID,' System parameters:\n  k = %.2d m/s\n  kGF = %.2d m/s\n  kRT = %.2d m/s\n  kGRS = %.2d m/s\n  ksi = %.2d\n  b = %.2d N-s/m\n',k,kG,kT,kGRS,ksi,b);
     fprintf(fileID,'  spring_offset (d) = %.2d m\n  RT_to_GF_limit (Lt) = %.2d m\n',d,Lt);
@@ -394,6 +409,7 @@ if savedata==1
     else
         fprintf(fileID,' TM stopped by actuation with SF = %.1f\n',4.5e-6/abs(vTM(end,2)));
     end
+    fprintf(fileID,'Simulation runtime = %.1f sec\n',runtime);
     fclose(fileID);
     cd('..');
 end
@@ -565,11 +581,10 @@ end
 % body = 'Yes';
 % 
 % sendolmail(to,subject,body)
-runtime = toc
 end
 
-function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,sEH,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
-    [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG);
+function [value,isterminal,direction] = unbond(t,y,ts1,ts2,tp,tc,sTM,sEH,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG,estimateRT)
+    [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG,estimateRT);
     bond1 = y(19,1,:);
     bond2 = y(20,1,:);
     % Bonds are broken when exceeding the elongation threshold. To re-form a bond, contact must occur (dLg<=0).

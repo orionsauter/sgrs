@@ -3,7 +3,7 @@
 % according to paper "Prediction of the LISA-Pathfinder release mechanism
 % in-flight performance" and the spring-tip CVM concept. Called by the script "TMrel_Ball3.m"
 
-function [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2]= TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG)
+function [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2]= TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG,estimateRT)
 % global imp imn imy bond1 bond2 tsep1 tsep2 tsept
 
 nvar = numel(y);
@@ -219,6 +219,10 @@ iy1=iy*(t-tsept<timp);
 
 % Grabbing Finger and Release Tip (1 DOF, Y-axis displacement)
     dydt = zeros([nvar,1]);
+    estm = 10^(-0.99096642*log10(kT)-1.640234);
+    % estb = 10^(-0.98271567*log10(kT)-0.41746246);
+    % estR1 = t*estm-estb
+    % estR2 = -t*estm+estb
     dydt(1,:) = vG1;                                                               % vG1
     dydt(2,:) = vG2;                                                               % vG2
     
@@ -231,6 +235,9 @@ iy1=iy*(t-tsept<timp);
     % else
         dydt(3,:) = y(4); % vT1
     if cG1
+        dydt(4,:) = 0;
+    elseif estimateRT > 0 && cT1(1) && y(3) < -0.25e-7
+        dydt(3,:) = estm;
         dydt(4,:) = 0;
     else
         dydt(4,:) = (1/mT)*(k*(yo(1)-yo(3)-d)+b*(vG1-y(4))+Fc1-Ft1v(2)); % aT1
@@ -245,6 +252,9 @@ iy1=iy*(t-tsept<timp);
     % else
         dydt(5,:) = y(6); % vT2
     if cG2
+        dydt(6,:) = 0;
+    elseif estimateRT > 0 && cT2(1) && y(5) > 0.25e-7
+        dydt(5,:) = -estm;
         dydt(6,:) = 0;
     else
         dydt(6,:) = (1/mT)*(k*(yo(2)-yo(5)+d)+b*(vG2-y(6))-Fc2-Ft2v(2)); % aT2
