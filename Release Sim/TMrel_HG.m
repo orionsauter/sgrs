@@ -39,10 +39,12 @@ end
 timestamp = (num2str(fix(clock)));
 savingid = timestamp((~isspace(timestamp)));
 if exist("run_name", "var")
-    savepath = run_name + "_" + savingid;
+    savepath = run_name;
 else
     savepath = savingid;
 end
+mkdir(savepath)
+copyfile(p.Results.config,savepath);
 
 %% Parameters
 
@@ -127,8 +129,10 @@ options = odeset("JPattern",jpatt, "RelTol", 1e-2, "AbsTol", absTol,...
 ie = [];
 t = [tspan(1), tspan(1)];
 y = transpose(y0);
-t_out = [];
-y_out = [];
+outfile = matfile(fullfile(savepath, ['TMrel_',savingid,'.mat']), 'Writable', true);
+outfile.t_out = [];
+outfile.y_out = [];
+outidx = 1;
 t_events = [tspan(1)];
 condition = 0;
 if p.Results.estimateGF
@@ -138,19 +142,25 @@ if p.Results.estimateGF
         ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,...
         X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG),...
         [tspan(1),tspan(1)+estT], y0, options);
-    t_out = cat(1, t_out(1:end-1,:), t);
-    y_out = cat(1, y_out(1:end-1,:), y);
+    outdim = size(t,1);
+    outend = outidx + outdim;
+    outfile.t_out = t;
+    outfile.y_out = y;
+    outidx = outend;
     xTM = y(:,7:9);
-    [yest, ydest] = FitGF(t,xTM,t_out(1,:),t_out(end,:));
+    [yest, ydest] = FitGF(t,xTM,t(1,:),t(end,:));
     dfill = 1e-6;%(estT/length(t));
     tfill = ((tspan(1)+0.01):dfill:tgf0)';
-    t_out = cat(1, t_out(1:end-1,:), tfill);
     yfill = repmat(y(end,:),length(tfill),1);
     yfill(:,8) = yest(tfill);
     yfill(:,11) = ydest(tfill);
     yfill(:,1) = y(end,1) + vrsy*(tfill-t(end));
     yfill(:,2) = y(end,2) - vrsy*(tfill-t(end));
-    y_out = cat(1, y_out(1:end-1,:), yfill);
+    outdim = size(tfill,1);
+    outend = outidx + outdim;
+    outfile.t_out(outidx:outend,:) = tfill;
+    outfile.y_out(outidx:outend,:) = yfill;
+    outidx = outend;
     y0 = yfill(end,:);
     tspan(1) = tgf0;
     t = [tspan(1), tspan(1)];
@@ -159,6 +169,7 @@ else
 end
 
 while t(end) < tspan(end)
+    fprintf("%f: Iteration start", t(end));
     if numel(ie) > 0
         % Event occurred
         tspan(1) = min(te);
@@ -171,13 +182,13 @@ while t(end) < tspan(end)
             ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,...
             vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,...
             I,T,Fx,Fz,tr,timp,rgf,muT,muG,p.Results.estimateRT);
-        xG1=y_out(end,1);
-        xG2=y_out(end,2);
-        xT1=y_out(end,3);
-        xT2=y_out(end,5);
-        xTM=y_out(end,7:9);
-        vTM=y_out(end,10:12);
-        bTM=y_out(end,13:15);
+        xG1=outfile.y_out(end,1);
+        xG2=outfile.y_out(end,2);
+        xT1=outfile.y_out(end,3);
+        xT2=outfile.y_out(end,5);
+        xTM=outfile.y_out(end,7:9);
+        vTM=outfile.y_out(end,10:12);
+        bTM=outfile.y_out(end,13:15);
 
         % fprintf("%f: Release tip contact state is %i, %i.\n", t_out(end), dLt1 < 0, dLt2 < 0);
         
@@ -283,12 +294,28 @@ while t(end) < tspan(end)
     % [t,y,te,ye,ie] = ode23s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     if numel(ie) > 0 && all(ie < 9) % Don't trim collision events
-        t_out = cat(1, t_out(1:end-1,:), t(t<=te(1),:));
-        y_out = cat(1, y_out(1:end-1,:), y(t<=te(1),:));
+        outdim = size(t(t<=te(1),:),1);
+        outend = outidx + outdim - 1;
+        if isempty(outfile.t_out)
+            outfile.t_out = t(t<=te(1),:);
+            outfile.y_out = y(t<=te(1),:);
+        else
+            outfile.t_out(outidx:outend,:) = t(t<=te(1),:);
+            outfile.y_out(outidx:outend,:) = y(t<=te(1),:);
+        end
+        outidx = outend;
     else
         % No events or contacted EH, so use full series
-        t_out = cat(1, t_out(1:end-1,:), t);
-        y_out = cat(1, y_out(1:end-1,:), y);
+        outdim = size(t,1);
+        outend = outidx + outdim - 1;
+        if isempty(outfile.t_out)
+            outfile.t_out = t;
+            outfile.y_out = y;
+        else
+            outfile.t_out(outidx:outend,:) = t;
+            outfile.y_out(outidx:outend,:) = y;
+        end
+        outidx = outend;
         if numel(ie) > 0
             condition = ie;
             fprintf("Final t=%f.\nEvent t=%f.\n", t(end), te(end));
@@ -302,29 +329,26 @@ end
 
 %% Output
 % state vector y = [xG1 xG2 xT1 vT1 xT2 vT2 xTM yTM zTM v_xTM v_yTM v_zTM an_xTM an_yTM an_zTM om_xTM om_yTM om_zTM]
-t = t_out;
-y = y_out;
-xG1=y(:,1);
-xG2=y(:,2);
-xT1=y(:,3);
-vT1=y(:,4);
-xT2=y(:,5);
-vT2=y(:,6);
-xTM=y(:,7:9);
-vTM=y(:,10:12);
-bTM=y(:,13:15);
-wTM=y(:,16:18);
+t = outfile.t_out(:,1);
+xG1=outfile.y_out(:,1);
+xG2=outfile.y_out(:,2);
+xT1=outfile.y_out(:,3);
+vT1=outfile.y_out(:,4);
+xT2=outfile.y_out(:,5);
+vT2=outfile.y_out(:,6);
+xTM=outfile.y_out(:,7:9);
+vTM=outfile.y_out(:,10:12);
+bTM=outfile.y_out(:,13:15);
+wTM=outfile.y_out(:,16:18);
 
-bond1 = y(:,19);
-bond2 = y(:,20);
-imp = y(:,21);
-imn = y(:,22);
-imy = y(:,23);
-tsep1 = y(:,24);
-tsep2 = y(:,25);
-tsept = y(:,26);
-
-clear y % saves memory
+bond1 = outfile.y_out(:,19);
+bond2 = outfile.y_out(:,20);
+imp = outfile.y_out(:,21);
+imn = outfile.y_out(:,22);
+imy = outfile.y_out(:,23);
+tsep1 = outfile.y_out(:,24);
+tsep2 = outfile.y_out(:,25);
+tsept = outfile.y_out(:,26);
 
 dLg1=xG1-xTM(:,2); % yG1-yTM
 dLg2=xTM(:,2)-xG2; % yTM-yG2
@@ -386,11 +410,6 @@ end
 % All positive for success
 captured = sEH/2 - abs(maxx);
 runtime = toc
-
-if savedata==1 || saveplot==1 || savestats==1
-    mkdir(savepath)
-    copyfile(p.Results.config,savepath);
-end
 
 if savedata==1
     cd(savepath)
