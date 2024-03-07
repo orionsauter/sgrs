@@ -25,7 +25,7 @@ def IsNumeric(x):
         return False
 
 def AllocWorkers(nclust, ncore):
-    cluster = SLURMCluster(cores=ncore, memory="160GiB", walltime="4-00:00:00", job_extra=["--qos=conklin-b"])
+    cluster = SLURMCluster(cores=ncore, memory="72GiB", walltime="4-00:00:00", job_extra=["--qos=conklin-b"])
     cluster.scale(nclust*ncore)
     client = Client(cluster)
     while ((client.status == "running") and (len(client.scheduler_info()["workers"]) < 1)):
@@ -41,18 +41,23 @@ def AllocWorkers(nclust, ncore):
 #     res = pd.Series(eng.TMrel_HG(*common_args,*args,background=False), index=["gapx","gapy","gapz"])
 #     return res
 
-def RunSim(args):
+def RunSim(args, limit=4*3600):
     logging.basicConfig(
         format='%(asctime)s %(levelname)s %(message)s',
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
-    common_args = ['config','nominal.xml','savestats','0','savedata','1','run_name','"'+("_".join(map(str, args)))+'"','kG','1e7','kT','1e7']
+    common_args = ['config','nominal.xml','savestats','0','savedata','1','run_name','"'+("_".join(map(str, args)))+'"','kG','1.1e6','kT','1.1e6']
     all_args = [arg if IsNumeric(arg) else '\''+arg+'\'' for arg in (common_args + list(args))]
     start = time.time()
-    res = sub.check_output(["sh", "RunSub.sh"] + all_args)
-    stop = time.time()
-    gaps = res.splitlines()[-1].decode().split()
+    try:
+        res = sub.check_output(["./RunSub.sh"] + all_args, timeout=limit)
+        stop = time.time()
+        gaps = res.splitlines()[-2].decode().split()
+    except sub.TimeoutExpired:
+        logging.info(f"Run timed out. Args: {args}")
+        gaps = [np.nan,np.nan,np.nan,limit]
     if len(gaps) != 4:
+        logging.warn(res)
         gaps = [np.nan,np.nan,np.nan,stop-start]
     return pd.Series(gaps, index=["gapx","gapy","gapz","runtime"], dtype=float)
 
@@ -205,7 +210,7 @@ if __name__ == "__main__":
     # # vars = ["vrsy", "ts1", "ts2", "tp", "tc"]
     # # rngs = [[2e-6,6e-6], [0,10e-5], [0,10e-5], [0,2], [5,7]]#, [0,1e-4], [0,1e-4], [0,1e-2], [0,1e-2]]
     vars = ["posTol", "velTol"]
-    rngs = [[-8,-6], [-8,-6]]
+    rngs = [[-8,-6], [-6.5,-6]]
     # arrs = [np.linspace(*rng, nval) for rng in rngs]
     arrs = [np.logspace(*rng, nval) for rng in rngs]
     cols = np.array([col.flatten() for col in np.meshgrid(*arrs)]).T
@@ -228,10 +233,10 @@ if __name__ == "__main__":
     res_list = client.gather(res)
     for res in res_list:
         logging.info(res)
-    # res_df = pd.concat([df,pd.concat(res_list,axis=1).T],axis=1)
+    res_df = pd.concat([df,pd.concat(res_list,axis=1).T],axis=1)
     # # df[res_df.index,res_df.columns] = res_df
     # logging.info(res_df)
-    # res_df.to_hdf("Gaps.h5","gaps")
+    res_df.to_hdf("Gaps.h5","gaps")
     # res = RunSim(arg_list[-1])
     exit()
 
