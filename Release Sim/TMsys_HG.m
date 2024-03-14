@@ -219,47 +219,8 @@ iy1=iy*(t-tsept<timp);
 
 % Grabbing Finger and Release Tip (1 DOF, Y-axis displacement)
     dydt = zeros([nvar,1]);
-    estm = 10^(-0.99096642*log10(kT)-1.640234);
-    % estb = 10^(-0.98271567*log10(kT)-0.41746246);
-    % estR1 = t*estm-estb
-    % estR2 = -t*estm+estb
     dydt(1,:) = vG1;                                                               % vG1
     dydt(2,:) = vG2;                                                               % vG2
-    
-    % if cT1
-    %     dydt(3,:) = y(11);
-    %     if y(4) > 0
-    %         dydt(3,:) = 0;
-    %     end
-    %     dydt(4,:) = 0;
-    % else
-        dydt(3,:) = y(4); % vT1
-    if cG1
-        dydt(4,:) = 0;
-    elseif estimateRT > 0 && cT1(1) && y(3) < -0.25e-7
-        dydt(3,:) = estm;
-        dydt(4,:) = 0;
-    else
-        dydt(4,:) = (1/mT)*(k*(yo(1)-yo(3)-d)+b*(vG1-y(4))+Fc1-Ft1v(2)); % aT1
-    end
-    % end
-    % if cT2
-    %     dydt(5,:) = y(11);
-    %     if y(6) > 0
-    %         dydt(5,:) = 0;
-    %     end
-    %     dydt(6,:) = 0;
-    % else
-        dydt(5,:) = y(6); % vT2
-    if cG2
-        dydt(6,:) = 0;
-    elseif estimateRT > 0 && cT2(1) && y(5) > 0.25e-7
-        dydt(5,:) = -estm;
-        dydt(6,:) = 0;
-    else
-        dydt(6,:) = (1/mT)*(k*(yo(2)-yo(5)+d)+b*(vG2-y(6))-Fc2-Ft2v(2)); % aT2
-    end
-    % end
 
   % Test Mass (6 DOF)
     dydt(7,:) = y(10);                                      % vxTM
@@ -274,16 +235,26 @@ iy1=iy*(t-tsept<timp);
     dydt(16,:) = (1/I(1,1))*(Ttm(1)+T(1)+(-izp1+izn1)*(ac+bc*tan(alp))/timp)+(I(2,2)-I(3,3))*y(17)*y(18); % alxTM
     dydt(17,:) = (1/I(2,2))*(Ttm(2)+T(2))+(I(3,3)-I(1,1))*y(16)*y(18);                                      % alyTM
     dydt(18,:) = (1/I(3,3))*(Ttm(3)+T(3)+(ixp1-ixn1)*(ac+bc*tan(alp))/timp)+(I(1,1)-I(2,2))*y(16)*y(17);  % alzTM
-
-    % if t > 2.6% && mod(floor(t*100),10)==0
-    %     plot(rtc1(1), rtc1(3), ".b");
-    %     hold on;
-    %     % plot(t, mt1v(2), ".r");
-    %     % plot(t, mt1v(3), ".g");
-    %     % xlim([-1,t]);
-    %     % ylim([-.1,.1]);
-    %     drawnow;
-    % end
+    
+    dydt(3,:) = y(4); % vT1
+    if cG1
+        dydt(4,:) = 0;
+    else
+        dydt(4,:) = (1/mT)*(k*(yo(1)-yo(3)-d)+b*(vG1-y(4))+Fc1-Ft1v(2)); % aT1
+    end
+    dydt(5,:) = y(6); % vT2
+    if cG2
+        dydt(6,:) = 0;
+    else
+        dydt(6,:) = (1/mT)*(k*(yo(2)-yo(5)+d)+b*(vG2-y(6))-Fc2-Ft2v(2)); % aT2
+    end
+    % RT estimation: If GFs have no contact, but tips do and impulse is done, TM is between tips
+    if estimateRT > 0 && cT1 && cT2 && ~cG1 && ~cG2 && iy1 == 0
+        dydt(8,:) = (y(4)+y(6))*0.5;
+        dydt(11,:) = 0;
+        dydt(16,:) = 0;
+        dydt(18,:) = 0;
+    end
     
 % MODIFIED EoMs (speeds code with contact assumptions, inaccurate)
 %     dydt(3,:) = y(4)*(cT1==cG1) + y(11)*cT1*~cG1 + vG1*cG1*~cT1;                   % vT1  

@@ -46,7 +46,7 @@ def RunSim(args, limit=4*3600):
         format='%(asctime)s %(levelname)s %(message)s',
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
-    common_args = ['config','nominal.xml','savestats','0','savedata','1','run_name','"'+("_".join(map(str, args)))+'"','kG','1.1e6','kT','1.1e6']
+    common_args = ['config','nominal.xml','savestats','0','savedata','1','run_name','"'+("_".join(map(str, args)))+'"']
     all_args = [arg if IsNumeric(arg) else '\''+arg+'\'' for arg in (common_args + list(args))]
     start = time.time()
     try:
@@ -129,13 +129,9 @@ def PlotPositions(files, labels):
         for dim in range(3):
             axs[dim].set_prop_cycle((cycler(color=['r', 'b', 'g']) + cycler(linestyle=['-', '--', ':'])))
             for i in range(len(files)):
+                logging.info(f"Plotting {files[i]}")
                 t = fhs[i]["t"][0,:]
-                # contact = GetContact(fh, sTM, Lt)
-                # change = np.where(np.any(np.diff(contact,axis=0)!=0,axis=1))[0]
                 axs[dim].plot(fhs[i]["t"][0,::dsamp],fhs[i]["xTM"][dim,::dsamp],"-",label=labels[i])
-                # ylim = axs[dim].get_ylim()
-                # axs[dim].vlines(t[change], *ylim, linestyles="dotted", colors="black")
-                # axs[dim].set_ylim(ylim)
             axs[dim].set_ylabel(f"TM {dimnames[dim]} pos. [m]")
         plt.legend()
         axs[2].set_xlabel("time [s]")
@@ -143,45 +139,62 @@ def PlotPositions(files, labels):
         export_pdf.savefig()
         plt.close()
 
-        fig, axs = plt.subplots(figsize=(8,8),nrows=2,sharex=True)
-        axs[0].set_prop_cycle((cycler(color=['r', 'b', 'g', 'orange']) + cycler(linestyle=['-', '--','-.', ':'])))
-        axs[1].set_prop_cycle((cycler(color=['r', 'b', 'g', 'orange']) + cycler(linestyle=['-', '--','-.', ':'])))
+        fig, ax = plt.subplots(figsize=(8,6))
+        ax.set_prop_cycle((cycler(color=['r', 'b', 'g']) + cycler(linestyle=['-', '--', ':'])))
         for i in range(len(files)):
+            logging.info(f"Plotting {files[i]}")
             t = fhs[i]["t"][0,:]
-            # contact = GetContact(fh, sTM, Lt)
-            # change = np.where(np.any(np.diff(contact,axis=0)!=0,axis=1))[0]
-            # line, = axs[0].plot(fhs[i]["t"][0,::dsamp],fhs[i]["xG1"][0,::dsamp],"-",label=labels[i])
-            axs[0].plot(fhs[i]["t"][0,::dsamp],fhs[i]["xT1"][0,::dsamp],"--",label=labels[i])
-            # ylim = axs[0].get_ylim()
-            # axs[0].vlines(t[change], *ylim, linestyles="dotted", colors=line.get_color())
-            # axs[0].set_ylim(ylim)
-            # line, = axs[1].plot(fhs[i]["t"][0,::dsamp],fhs[i]["xG2"][0,::dsamp],"-",label=labels[i])
-            axs[1].plot(fhs[i]["t"][0,::dsamp],fhs[i]["xT2"][0,::dsamp],"--",label=labels[i])
-            # ylim = axs[1].get_ylim()
-            # axs[1].vlines(t[change], *ylim, linestyles="dotted", colors=line.get_color())
-            # axs[1].set_ylim(ylim)
-        axs[0].set_ylabel(f"GF/RT 1 pos. [m]")
-        axs[1].set_ylabel(f"GF/RT 2 pos. [m]")
+            tclip = (t>18.5)&(t<18.6)
+            ax.plot(fhs[i]["t"][0,tclip],fhs[i]["vTM"][1,tclip],"-",label=labels[i])
+        ax.set_ylabel(f"TM y pos. [m]")
         plt.legend()
-        axs[1].set_xlabel("time [s]")
+        ax.set_xlabel("time [s]")
         plt.tight_layout()
         export_pdf.savefig()
         plt.close()
 
-        fig, axs = plt.subplots(figsize=(8,8),nrows=3,sharex=True)
-        for dim in range(3):
-            t_ex = fhs[0]["t"][0,:]
-            t_ap = fhs[1]["t"][0,:]
-            x_ex = fhs[0]["xTM"][dim,:]
-            x_ap = sci.InterpolatedUnivariateSpline(t_ap,fhs[1]["xTM"][dim,:])
-            axs[dim].plot(t_ex[::dsamp],x_ap(t_ex[::dsamp])-x_ex[::dsamp],"-",label=labels[i])
-            axs[dim].set_ylabel(f"TM {dimnames[dim]} pos. err. [m]")
-        # plt.legend()
-        axs[2].set_xlabel("time [s]")
-        plt.tight_layout()
-        export_pdf.savefig()
-        plt.close()
+def GetRuntime(output):
+    with open(output,"r") as fh:
+        for line in fh:
+            if line.startswith("Simulation runtime"):
+                return float(line.split(" = ")[1].split(" ")[0])
+    return np.nan
 
+def GetErrors(grp, export_pdf=None):
+    dsamp = 50
+    dimnames = ["X","Y","Z"]
+    arg_list = [sum(grp.loc[i].to_dict().items(),()) for i in grp.index]
+    grp["files"] = [glob(f"{('_'.join(map(str, args)))}/*.mat")[0] for args in arg_list]
+    grp["runtime"] = [GetRuntime(glob(f"{('_'.join(map(str, args)))}/Output*.txt")[0]) for args in arg_list]
+    exact = h5py.File(grp["files"][grp["estimateRT"]=="0.0"].iloc[0], "r")
+    apprx = h5py.File(grp["files"][grp["estimateRT"]=="1.0"].iloc[0], "r")
+
+    maxerr = []
+    for dim in range(3):
+        t0 = exact["t"][0,:]
+        t = apprx["t"][0,:]
+        x0 = exact["xTM"][dim,:]
+        x = sci.InterpolatedUnivariateSpline(t,apprx["xTM"][dim,:])
+        maxerr += [np.max(np.abs(x(t0[::dsamp])-x0[::dsamp]))]
+    maxerr += [grp["runtime"][grp["estimateRT"]=="0.0"].iloc[0]/grp["runtime"][grp["estimateRT"]=="1.0"].iloc[0]]
+    if export_pdf is None:
+        return np.array(maxerr)
+
+    fig, axs = plt.subplots(figsize=(8,8),nrows=3,sharex=True)
+    for dim in range(3):
+        t0 = exact["t"][0,:]
+        t = apprx["t"][0,:]
+        x0 = exact["xTM"][dim,:]
+        x = sci.InterpolatedUnivariateSpline(t,apprx["xTM"][dim,:])
+        axs[dim].plot(t0[::dsamp],x(t0[::dsamp])-x0[::dsamp],"-")
+        axs[dim].set_ylabel(f"TM {dimnames[dim]} pos. err. [m]")
+    axs[2].set_xlabel("time [s]")
+    plt.suptitle(f'kG = {grp["kG"].iloc[0]}, kT = {grp["kT"].iloc[0]}')
+    plt.tight_layout()
+    export_pdf.savefig()
+    plt.close()
+
+    return np.array(maxerr)
 
 if __name__ == "__main__":
 
@@ -190,12 +203,14 @@ if __name__ == "__main__":
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
     
+    dorun = False
     neng = 10 # Number of Matlab instances
     nval = 3 # Number of vals for each var
     # nsamp = 10 # Number of runs
     nclust = 8
     ncore = 4
-    client = AllocWorkers(nclust, ncore)
+    if dorun:
+        client = AllocWorkers(nclust, ncore)
     fs = 3e6
     dt = 1.0/fs
 
@@ -209,10 +224,12 @@ if __name__ == "__main__":
     # vars = []
     # # vars = ["vrsy", "ts1", "ts2", "tp", "tc"]
     # # rngs = [[2e-6,6e-6], [0,10e-5], [0,10e-5], [0,2], [5,7]]#, [0,1e-4], [0,1e-4], [0,1e-2], [0,1e-2]]
-    vars = ["posTol", "velTol"]
-    rngs = [[-8,-6], [-6.5,-6]]
+    vars = ["kG", "kT", "estimateRT"]
+    rngs = [[6,7], [6,7]]
     # arrs = [np.linspace(*rng, nval) for rng in rngs]
     arrs = [np.logspace(*rng, nval) for rng in rngs]
+    arrs += [[0,1]]
+    # arrs = [[5e5,5.1e5],[5e5,5.1e5],[0,1]]
     cols = np.array([col.flatten() for col in np.meshgrid(*arrs)]).T
     df = pd.DataFrame(cols, columns=vars).astype(str)
 
@@ -224,289 +241,75 @@ if __name__ == "__main__":
     #     lambda x: "[" + ", ".join(x) + "]", axis=1) for i in range(0,vec_cols.shape[1],3)]).T, columns=vecs)
     # df = df.join(vec_df, how="outer").fillna(0)
 
-    # df = df.sample(nsamp, random_state=42)
+    if dorun:
+        arg_list = [sum(df.loc[i].to_dict().items(),()) for i in df.index]
+        res = client.map(RunSim, arg_list)
+        logging.info("Awaiting results.")
+        res_list = client.gather(res)
+        for res in res_list:
+            logging.info(res)
+        res_df = pd.concat([df,pd.concat(res_list,axis=1).T],axis=1)
+        res_df.to_hdf("Gaps.h5","gaps")
 
-    # df = pd.DataFrame({"kG":[5e7,5e7],"kT":[5e7,5e7],"posTol":[1e-8,3e-8,1e-7],"velTol":[1e-8,3e-8,1e-7]})
-    arg_list = [sum(df.loc[i].to_dict().items(),()) for i in df.index]
-    res = client.map(RunSim, arg_list)
-    logging.info("Awaiting results.")
-    res_list = client.gather(res)
-    for res in res_list:
-        logging.info(res)
-    res_df = pd.concat([df,pd.concat(res_list,axis=1).T],axis=1)
-    # # df[res_df.index,res_df.columns] = res_df
-    # logging.info(res_df)
-    res_df.to_hdf("Gaps.h5","gaps")
-    # res = RunSim(arg_list[-1])
-    exit()
-
-    files = glob("Nominal_*/*.mat")
-    # files = [glob(f"{('_'.join(map(str, args)))}_*/*.mat")[0] for args in arg_list] + ["WideK/kG_500000.0_kT_500000.0_202412412480/TMrel_202412412480.mat"]
-    labels = ["exact", "est.", "old"]
-    PlotPositions(files, labels)
-    exit()
-    # labels = [f"{row['kG']:.0f}, {row['kT']:.0f}" for _, row in df.iterrows()]
-    # files = glob(f"*K/*/*.mat")
-    # kG = [float(file.split("_")[1]) for file in files]
-    # kT = [float(file.split("_")[3]) for file in files]
-    # labels = [f"{kG[i]:.0f}, {kT[i]:.0f}" for i in range(len(kG))]
-    with PdfPages("SpringScale.pdf") as export_pdf:
-        # for dim in range(3):
-        # dim = 1
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # for i in range(len(files)):
-        #     with h5py.File(files[i], "r") as fh:
-        #         t = fh["t"][0,:]
-        #         amp = fh["vTM"][dim,:]
-        #         # Get sign changes & find max in each pos region
-        #         idx = np.hstack([0,np.where(np.sign(amp[:-1]) != np.sign(amp[1:]))[0] + 1,-1])
-        #         mxs = np.array([idx[i]+np.argmax(amp[idx[i]:idx[i+1]]) for i in range(len(idx)-1) if amp[(idx[i]+idx[i+1])//2]>0])
-        #         mts = t[mxs]
-        #         f = 1.0/np.diff(mts)
-        #         plt.semilogy((mts[:-1]+mts[1:])/2,f,"-",label=labels[i])
-        #         contact = GetContact(fh, sTM, Lt)
-        #         change = np.where(np.any(np.diff(contact,axis=0)!=0,axis=1))[0]
-        #         xlim = plt.xlim()
-        #         ylim = plt.ylim()
-        #         plt.vlines(t[change], *ylim, linestyles="dotted", colors="black")
-        #         plt.xlim(xlim)
-        #         plt.ylim(ylim)
-        # w0 = np.sqrt(1.317e4/0.5378)/4
-        # plt.hlines(np.sqrt(w0*w0-2*(4*1.45547)**2), *xlim, linestyles="dotted", colors="black")
-        # plt.xlim(xlim)
-        # plt.legend(fontsize="8")
-        # plt.xlabel("time [s]")
-        # plt.ylabel("TM vel. freq. [Hz]")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-        # slopes = np.zeros((len(files)))
-        # intcps = np.zeros((len(files)))
-        # for i in range(len(files)):
-        #     fig, axs = plt.subplots(figsize=(8,8),nrows=2,sharex=True)
-        #     # axs[0].set_prop_cycle((cycler(color=['r', 'g', 'b', 'm', 'c', 'k']) * cycler(linestyle=['-', '--', '-.'])))
-        #     # axs[1].set_prop_cycle((cycler(color=['r', 'g', 'b', 'm', 'c', 'k']) * cycler(linestyle=['-', '--', '-.'])))
-        #     with h5py.File(files[i], "r") as fh:
-        #         t = fh["t"][0,:]
-        #         GF1 = fh["xG1"][0,:]
-        #         GF2 = fh["xG2"][0,:]
-        #         RT1 = fh["xT1"][0,:]
-        #         RT2 = fh["xT2"][0,:]
-        #         contact = GetContact(fh, sTM, Lt)
-        #         change = np.where(np.any(np.diff(contact,axis=0)!=0,axis=1))[0]
-        #         trng = (t>5)&(t<15)
-        #         p = np.polyfit(t[trng], RT1[trng], 1)
-        #         # m, c = np.linalg.lstsq(np.vstack([t[trng], np.ones(len(t[trng]))]).T, RT1[trng])[0]
-        #         slopes[i] = p[0]
-        #         intcps[i] = p[1]
-        #         estm = 10**(-0.99096642*np.log10(kT[i])-1.640234)
-        #         estb = 10**(-0.98271567*np.log10(kT[i])-0.41746246)
-        #         estR1 = t*estm+estb
-        #         # t = t[t>17.5]
-        #         dsamp = 500
-        #         axs[0].plot(t[::dsamp],RT1[::dsamp],".",label=labels[i])
-        #         # axs[1].plot(t[::dsamp],RT2[::dsamp],".",label=labels[i])
-        #         axs[0].plot(t[::dsamp],estm*t[::dsamp]-estb,"--",label=labels[i])
-        #         # axs[1].plot(t[::dsamp],-estm*t[::dsamp]+estb,"--",label=labels[i])
-        #         axs[1].semilogy(t[::dsamp],np.abs(fh["vTM"][1,::dsamp]),"-")
-        #         axs[0].vlines(t[change], *axs[0].get_ylim(), linestyles="dotted", colors="black")
-        #         axs[1].vlines(t[change], *axs[1].get_ylim(), linestyles="dotted", colors="black")
-        #         axs[0].set_ylim((-np.abs(RT1[0]),np.abs(RT1[0])))
-        #         # axs[1].set_ylim((-np.abs(RT2[0]),np.abs(RT2[0])))
-        #         # axs[0].plot(t,RT1-RT2,label=labels[i])
-        #         # axs[1].plot(t,GF1-RT1,label=labels[i])
-        #         # axs[1].plot(t,RT2-GF2,label=labels[i])
-        #     # plt.legend(fontsize="8")
-        #     axs[1].set_xlabel("time [s]")
-        #     axs[0].set_ylabel("RT1 pos [m]")
-        #     axs[1].set_ylabel("TM vel. [m/s]")
-        #     # axs[1].set_ylabel("RT2 poss [m]")
-        #     plt.tight_layout()
-        #     export_pdf.savefig()
-        #     plt.close()
-
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # plt.loglog(kT,slopes,".")
-        # p = np.polyfit(np.log10(kT),np.log10(slopes),1)
-        # logging.info(f"Slope fit: m = {p[0]:.8g}, b = {p[1]:.8g}")
-        # plt.loglog(kT, 10**(p[0]*np.log10(kT)+p[1]),"-")
-        # plt.xlabel("kT")
-        # plt.ylabel("RT1 pos. slope")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # plt.loglog(kT,-intcps,".")
-        # p = np.polyfit(np.log10(kT),np.log10(-intcps),1)
-        # logging.info(f"Intcp fit: m = {p[0]:.8g}, b = {p[1]:.8g}")
-        # plt.loglog(kT, 10**(p[0]*np.log10(kT)+p[1]),"-")
-        # plt.xlabel("kT")
-        # plt.ylabel("RT1 pos. slope")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # plt.scatter(kG,slopes,c=np.log10(kT))
-        # plt.xlabel("kG")
-        # plt.ylabel("RT1 pos. slope")
-        # plt.xscale("log")
-        # plt.yscale("log")
-        # plt.colorbar(label="log kT")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # plt.scatter(kG,-np.array(intcps),c=np.log10(kT))
-        # plt.xlabel("kG")
-        # plt.ylabel("RT1 pos. intcp.")
-        # plt.xscale("log")
-        # plt.yscale("log")
-        # plt.colorbar(label="log kT")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-            # fig, ax = plt.subplots(figsize=(8,6))
-            # for i in range(len(files)):
-            #     with h5py.File(files[i], "r") as fh:
-            #         t = fh["t"][0,:]
-            #         amp = fh["vTM"][dim,:]
-            #         amp = amp[(t>3.65)&(t<7.0)]
-            #         t = t[(t>3.65)&(t<7.0)]
-            #         # Get sign changes & find max in each pos region
-            #         idx = np.hstack([0,np.where(np.sign(amp[:-1]) != np.sign(amp[1:]))[0] + 1,-1])
-            #         mxs = np.array([idx[i]+np.argmax(amp[idx[i]:idx[i+1]]) for i in range(len(idx)-1) if amp[(idx[i]+idx[i+1])//2]>0])
-            #         mts = t[mxs]
-            #         f = 1.0/np.diff(mts)
-            #         plt.semilogy((mts[:-1]+mts[1:])/2,f,"-",label=labels[i])
-            # xlim = plt.xlim()
-            # w0 = np.sqrt(1.317e4/0.5378)/4
-            # plt.hlines(np.sqrt(w0*w0-2*(4*1.45547)**2), *xlim, linestyles="dotted", colors="black")
-            # plt.xlim(xlim)
-            # plt.ylim([30,40])
-            # plt.legend()
-            # plt.xlabel("time [s]")
-            # plt.ylabel("TM vel. freq. [Hz]")
-            # plt.tight_layout()
-            # export_pdf.savefig()
-            # plt.close()
-
-            # fig, ax = plt.subplots(figsize=(8,6))
-            # for i in range(len(files)):
-            #     with h5py.File(files[i], "r") as fh:
-            #         t = fh["t"][0,:]
-            #         amp = fh["vTM"][dim,:]
-            #         # Get sign changes & find max in each pos region
-            #         idx = np.hstack([0,np.where(np.sign(amp[:-1]) != np.sign(amp[1:]))[0] + 1,-1])
-            #         mxs = np.array([idx[i]+np.argmax(amp[idx[i]:idx[i+1]]) for i in range(len(idx)-1) if amp[(idx[i]+idx[i+1])//2]>0])
-            #         # mxs = sg.argrelmax(amp)
-            #         mts = t[mxs]
-            #         line, = plt.semilogy(mts,amp[mxs],"-",label=labels[i])
-            #         contact = GetContact(fh, sTM, Lt)
-            #         change = np.where(np.any(np.diff(contact,axis=0)!=0,axis=1))[0]
-            #         unbond = np.where(np.any(np.diff(contact[:,-2:],axis=0)!=0,axis=1))[0][0]
-            #         # Breaking bond adds impulse to vel. Skip ahead
-            #         impendt = t[unbond] + 1e-2
-            #         impend = np.argmin(np.abs(t-impendt))
-            #         unbt = np.arange(t[impend],t[-1],0.1)
-            #         unbv = amp[impend]
-            #         xlim = plt.xlim()
-            #         ylim = plt.ylim()
-            #         plt.vlines(t[change], *ylim, linestyles="dotted", colors=line.get_color())
-            #         plt.plot(unbt,unbv*np.exp(-4*1.45547*(unbt-unbt[0])), linestyle="dotted", color=line.get_color())
-            #         plt.xlim(xlim)
-            #         plt.ylim(ylim)
-            # plt.legend()
-            # plt.xlabel("time [s]")
-            # plt.ylabel("TM vel. amp. [m/s]")
-            # plt.tight_layout()
-            # export_pdf.savefig()
-            # plt.close()
-
-        rtsep1 = np.zeros((len(files),))
-        rtsep2 = np.zeros((len(files),))
-        rtvel = np.zeros((len(files),))
+    files = glob("kG_*/*.mat")
+    df = pd.concat([pd.DataFrame(np.array(file.split("/")[0].split("_")).reshape((-1,2)).T[1:,:],columns=vars)
+                    for file in files], axis=0, ignore_index=True)
+    # files = [glob(f"{('_'.join(map(str, args)))}/*.mat")[0] for args in arg_list]
+    # labels = [" ".join(sum(df[["kG","kT","estimateRT"]].loc[i].to_dict().items(),())) for i in df.index]#["exact", "est.", "old"]
+    # logging.info(f"Found {len(files)} files.")
+    # PlotPositions(files, labels)
+    errors = pd.DataFrame(np.nan,index=pd.MultiIndex.from_frame(df[["kG","kT"]]).drop_duplicates(),columns=["X","Y","Z","runtime"])
+    with PdfPages("EstimateError.pdf") as export_pdf:
+        for name, grp in df.groupby(["kG","kT"]):
+            if grp.shape[0] != 2:
+                continue
+            errors.loc[name,:] = GetErrors(grp,export_pdf)
+        errors = errors.reset_index().astype(np.float64)
+        
         fig, ax = plt.subplots(figsize=(8,6))
-        for i in range(len(files)):
-            with h5py.File(files[i], "r") as fh:
-                t = fh["t"][0,:]
-                contact = GetContact(fh, sTM, Lt)
-                change = np.where(np.any(np.diff(contact[:,4:6],axis=0)!=0,axis=1))[0]
-                rtsep1[i] = np.min(t[change])
-                rtsep2[i] = np.max(t[change])
-                tstart = rtsep2[i]
-                trng = (t>=tstart-5e-4)&(t<tstart+3e-4)
-                rtvel[i] = np.abs((fh["vTM"][1,trng])[-1])
-                plt.semilogy(t[trng]-tstart,np.abs(fh["vTM"][1,trng]),"-",label=labels[i])
-        plt.legend(fontsize="8")
-        plt.xlabel("time after RT sep. [s]")
-        plt.ylabel("TM y velocity [m/s]")
+        plt.scatter(errors["kG"],errors["kT"],c=np.log10(errors["X"]))
+        plt.xscale("log")
+        plt.yscale("log")
+        plt.xlabel("kG")
+        plt.ylabel("kT")
+        plt.colorbar(label="log max X err.")
         plt.tight_layout()
         export_pdf.savefig()
         plt.close()
-
-        # accrise = np.zeros((len(files),))
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # for i in range(len(files)):
-        #     with h5py.File(files[i], "r") as fh:
-        #         t = fh["t"][0,:]
-        #         a = np.diff(fh["vTM"][1,:])/np.diff(t)
-        #         accrise[i] = np.min(t[:-1][(t[:-1]>17.3)&(np.abs(a)>1e-4)])
-        #         # endi = np.max(np.where(a!=0)[0])
-        #         # plt.semilogy(t[starti[i]:-1],a[starti[i]:],"-",label=labels[i])
-        #         # plt.plot(t[:-1][t[:-1]>rtsep1[i]-2],a[t[:-1]>rtsep1[i]-2],"-",label=labels[i])
-        #         plt.plot(t[:-1][(t[:-1]>17.3)&(t[:-1]<17.9)],a[(t[:-1]>17.3)&(t[:-1]<17.9)],"-",label=labels[i])
-        # plt.legend()
-        # plt.xlabel("time [s]")
-        # plt.ylabel("TM y accel. [m/s^2]")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # for i in range(len(files)):
-        #     with h5py.File(files[i], "r") as fh:
-        #         t = fh["t"][0,:]
-        #         # trng = (t>=rtsep2[i]-1)&(t<=rtsep2[i])
-        #         yvel = np.abs(fh["vTM"][1,:])
-        #         hist, bins = np.histogram(np.log10(yvel[yvel>0]), 200)
-        #         plt.step(10**bins[:-1],hist/np.sum(hist),"-",label=labels[i])
-        # plt.legend(fontsize="8")
-        # plt.xlabel("TM y vel. [m/s]")
-        # plt.ylabel("density")
-        # plt.xscale("log")
-        # plt.yscale("log")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-        # kG = [arg_list[i][1] for i in range(len(files))]
-        # kT = [arg_list[i][3] for i in range(len(files))]
-        tdiff = rtsep2-rtsep1
+        
         fig, ax = plt.subplots(figsize=(8,6))
-        plt.loglog(kT,rtsep1,'.',label="1st")
-        plt.loglog(kT,rtsep2,'.',label="2nd")
-        plt.legend(fontsize="8")
-        plt.xlabel("kT")
-        plt.ylabel("RT sep. time")
+        plt.scatter(errors["kG"],errors["kT"],c=np.log10(errors["Y"]))
+        plt.xscale("log")
+        plt.yscale("log")
+        plt.xlabel("kG")
+        plt.ylabel("kT")
+        plt.colorbar(label="log max Y err.")
         plt.tight_layout()
         export_pdf.savefig()
         plt.close()
-
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # plt.scatter(kT,kG,c=accrise)
-        # plt.colorbar(label="acc. rise time")
-        # plt.xlabel("kT")
-        # plt.ylabel("kG")
-        # plt.xscale("log")
-        # plt.yscale("log")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
+        
+        fig, ax = plt.subplots(figsize=(8,6))
+        plt.scatter(errors["kG"],errors["kT"],c=np.log10(errors["Z"]))
+        plt.xscale("log")
+        plt.yscale("log")
+        plt.xlabel("kG")
+        plt.ylabel("kT")
+        plt.colorbar(label="log max Z err.")
+        plt.tight_layout()
+        export_pdf.savefig()
+        plt.close()
+        
+        fig, ax = plt.subplots(figsize=(8,6))
+        plt.scatter(errors["kG"],errors["kT"],c=errors["runtime"])
+        plt.xscale("log")
+        plt.yscale("log")
+        plt.xlabel("kG")
+        plt.ylabel("kT")
+        plt.colorbar(label="runtime ratio")
+        plt.tight_layout()
+        export_pdf.savefig()
+        plt.close()
+    exit()
 
         # for i in range(len(files)):
         #     with h5py.File(files[i], "r") as fh:
@@ -550,35 +353,3 @@ if __name__ == "__main__":
         #     plt.tight_layout()
         #     export_pdf.savefig()
         #     plt.close()
-
-        # steps = []
-        # for i in range(len(files)):
-        #     with h5py.File(files[i], "r") as fh:
-        #         steps += [np.diff(fh["t"][0,:])]
-        # fig, ax = plt.subplots(figsize=(8,6))
-        # _, bins = np.histogram(np.log10(np.hstack(steps)), 100)
-        # ax.hist(steps, 10**bins, histtype="step", stacked=False, fill=False, label=labels)
-        # ax.set_xscale("log")
-        # ax.set_yscale("log")
-        # plt.legend()
-        # plt.xlabel("timestep [s]")
-        # plt.ylabel("count")
-        # plt.tight_layout()
-        # export_pdf.savefig()
-        # plt.close()
-
-        # for i in range(len(files)):
-        #     with h5py.File(files[i], "r") as fh:
-        #         # func = sci.CubicSpline(fh["t"][0,:], fh["vTM"][:])
-        #         func = sci.UnivariateSpline(fh["t"][0,:], fh["vTM"][1,:])
-        #         tunif = np.arange(fh["t"][0,0],fh["t"][0,-1]+dt,dt)
-        #         f, t, Sxx = sg.spectrogram(func(tunif), fs, nperseg=int(fs*1e-3))
-        #         fig, ax = plt.subplots(figsize=(8,6))
-        #         plt.pcolormesh(t, f, np.sqrt(Sxx))
-        #         plt.xlabel("time [s]")
-        #         plt.ylabel("freq. [Hz]")
-        #         plt.ylim([1e5,2e6])
-        #         plt.colorbar(label="y vel. ASD [m/s/sqrt(Hz)]")
-        #         plt.tight_layout()
-        #         export_pdf.savefig()
-        #         plt.close()

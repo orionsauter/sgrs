@@ -14,6 +14,8 @@ addOptional(p,'config','config.xml');
 addOptional(p,'estimateGF',0);
 addOptional(p,'estimateRT',0);
 addOptional(p,'useEnergy',0);
+posTol = 5e-7;
+velTol = 5e-7;
 parse(p,varargin{:});
 config = readstruct(p.Results.config);
 % Hard code the field names to get the order right
@@ -94,8 +96,6 @@ y0 =     [xG10; xG20; xT10; vT10; xT20; vT20;
           xTM0'; vTM0';
           bTM0'; wTM0';
           bond1; bond2; imp; imn; imy; tsep1; tsep2; tsept];
-% posTol = 5e-7;
-% velTol = 5e-7;
 infTol = 1e3;
 absTol = [posTol; posTol; posTol; velTol; posTol; velTol; 
           posTol; posTol; posTol; velTol; velTol; velTol; 
@@ -169,7 +169,6 @@ else
 end
 
 while t(end) < tspan(end)
-    fprintf("%f: Iteration start", t(end));
     if numel(ie) > 0
         % Event occurred
         tspan(1) = min(te);
@@ -203,12 +202,12 @@ while t(end) < tspan(end)
             maxx = check_capture(xTM, bTM, vTM+[0,dv,0], M, sTM, kGRS);
             captured = sEH/2 - abs(maxx);
             if all(captured>0)
-                fprintf("%f: Release tips free and vel within actuation.\n", t_out(end));
+                fprintf("%f: Release tips free and vel within actuation.\n", outfile.t_out(end));
                 condition = 0;
                 break
             end
             if abs(vTM(:,2)) < vrsy
-                fprintf("%f: Release tips free and TM vel slower than GF.\n", t_out(end));
+                fprintf("%f: Release tips free and TM vel slower than GF.\n", outfile.t_out(end));
                 condition = 0;
                 break
             end
@@ -324,7 +323,6 @@ while t(end) < tspan(end)
         end
         break
     end
-    % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HGvec(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
 end
 
 %% Output
