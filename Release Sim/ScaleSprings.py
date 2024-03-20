@@ -78,13 +78,17 @@ def GetContact(fh, sTM, Lt):
 
     # Position and Speed Vectors
 
-    rt1 = np.pad(fh["xT1"][:]+sTM/2,((1,1),(0,0))).T # RT1 position
-    rt2 = np.pad(fh["xT2"][:]-sTM/2,((1,1),(0,0))).T # RT2 position
+    rt1 = np.zeros((fh["xT1"][:].flatten().shape[0],3)) # RT1 position
+    rt1[:,1] = fh["xT1"][:]+sTM/2
+    rt2 = np.zeros((fh["xT2"][:].flatten().shape[0],3)) # RT2 position
+    rt2[:,1] = fh["xT2"][:]-sTM/2
     # vt1 = np.pad(fh["vT1"][:],((1,1),(0,0))) # RT1 speed
     # vt2 = np.pad(fh["vT2"][:],((1,1),(0,0))) # RT2 speed
 
-    rg1 = np.pad(fh["xG1"][:]+sTM/2,((1,1),(0,0))).T # GF1 position
-    rg2 = np.pad(fh["xG2"][:]-sTM/2,((1,1),(0,0))).T # GF2 position
+    rg1 = np.zeros((fh["xG1"][:].flatten().shape[0],3)) # GF1 position
+    rg1[:,1] = fh["xG1"][:]+sTM/2
+    rg2 = np.zeros((fh["xG2"][:].flatten().shape[0],3)) # GF2 position
+    rg2[:,1] = fh["xG2"][:]-sTM/2
     # vg1 = np.array([[0, vG1, 0]]) # GF1 speed
     # vg2 = np.array([[0, vG2, 0]]) # GF2 speed
 
@@ -117,7 +121,7 @@ def GetContact(fh, sTM, Lt):
     cRT_TM2 = dLt2<0 # RT2 to TM contact
     cG_RT1 = Fc1>0 # GF1 to RT1 contact
     cG_RT2 = Fc2>0 # GF2 to RT2 contact
-    contact = np.vstack([cG_RT1,cG_RT2,cG_TM1,cG_TM2,cRT_TM1,cRT_TM2,fh["bond1"][0,:],fh["bond2"][0,:]]).T
+    contact = np.vstack([cG_RT1,cG_RT2,cG_TM1,cG_TM2,cRT_TM1,cRT_TM2,fh["bond1"][:].flatten(),fh["bond2"][:].flatten()]).T
     return contact
 
 def PlotPositions(files, labels):
@@ -154,20 +158,63 @@ def PlotPositions(files, labels):
         plt.close()
 
 def GetRuntime(output):
+    if len(output) > 0:
+        output = output[0]
+    else:
+        return np.nan
     with open(output,"r") as fh:
         for line in fh:
             if line.startswith("Simulation runtime"):
                 return float(line.split(" = ")[1].split(" ")[0])
     return np.nan
 
-def GetErrors(grp, export_pdf=None):
+def UnpackVals(fh):
+    fh["t"] = fh["t_out"][:]
+    fh["xG1"] = fh["y_out"][0,:]
+    fh["xG2"] = fh["y_out"][1,:]
+    fh["xT1"] = fh["y_out"][2,:]
+    fh["vT1"] = fh["y_out"][3,:]
+    fh["xT2"] = fh["y_out"][4,:]
+    fh["vT2"] = fh["y_out"][5,:]
+    fh["xTM"] = fh["y_out"][6:9,:]
+    fh["vTM"] = fh["y_out"][9:12,:]
+    fh["bTM"] = fh["y_out"][12:15,:]
+    fh["wTM"] = fh["y_out"][15:18,:]
+    fh["bond1"] = fh["y_out"][18,:]
+    fh["bond2"] = fh["y_out"][19,:]
+
+def GetErrors(grp, sTM, Lt, export_pdf=None):
     dsamp = 50
     dimnames = ["X","Y","Z"]
     arg_list = [sum(grp.loc[i].to_dict().items(),()) for i in grp.index]
     grp["files"] = [glob(f"{('_'.join(map(str, args)))}/*.mat")[0] for args in arg_list]
-    grp["runtime"] = [GetRuntime(glob(f"{('_'.join(map(str, args)))}/Output*.txt")[0]) for args in arg_list]
-    exact = h5py.File(grp["files"][grp["estimateRT"]=="0.0"].iloc[0], "r")
-    apprx = h5py.File(grp["files"][grp["estimateRT"]=="1.0"].iloc[0], "r")
+    grp["runtime"] = [GetRuntime(glob(f"{('_'.join(map(str, args)))}/Output*.txt")) for args in arg_list]
+    exact = h5py.File(grp["files"][grp["estimateRT"]=="0.0"].iloc[0], "a")
+    if "t" not in exact.keys():
+        UnpackVals(exact)
+    apprx = h5py.File(grp["files"][grp["estimateRT"]=="1.0"].iloc[0], "a")
+    if "t" not in apprx.keys():
+        UnpackVals(apprx)
+
+    conExact = GetContact(exact, sTM, Lt)
+    cngExact = np.where(np.any(np.diff(conExact,axis=0)!=0,axis=1))[0]
+    conApprx = GetContact(apprx, sTM, Lt)
+    cngApprx = np.where(np.any(np.diff(conApprx,axis=0)!=0,axis=1))[0]
+    onApprx = (conApprx[:,4]==1) & (conApprx[:,5]==1) & (conApprx[:,2]==0) & (conApprx[:,3]==0)
+    logging.info(onApprx)
+    begApprx = np.where(onApprx[:-1] < onApprx[1:])[0]
+    endApprx = np.where(onApprx[:-1] > onApprx[1:])[0]
+    # begApprx = np.where(np.diff(onApprx)==1)[0]
+    # endApprx = np.where(np.diff(onApprx)==-1)[0]
+    if begApprx.shape[0] == 0:
+        begApprx = np.array([0])
+    if endApprx.shape[0] == 0:
+        endApprx = np.array([len(conApprx)-1])
+    if begApprx[0] > endApprx[0]:
+        begApprx = np.insert(begApprx,0,0)
+    if begApprx[-1] > endApprx[-1]:
+        endApprx = np.append(endApprx, len(conApprx)-1)
+    regApprx = np.vstack([begApprx,endApprx]).T
 
     maxerr = []
     for dim in range(3):
@@ -187,9 +234,69 @@ def GetErrors(grp, export_pdf=None):
         x0 = exact["xTM"][dim,:]
         x = sci.InterpolatedUnivariateSpline(t,apprx["xTM"][dim,:])
         axs[dim].plot(t0[::dsamp],x(t0[::dsamp])-x0[::dsamp],"-")
+        # for i in range(regApprx.shape[0]):
+        #     # axs[dim].axvspan(*t0[regApprx[i,:]], alpha=0.5, color="red")
+        #     axs[dim].axvspan(t0[begApprx[i]], t0[endApprx[i]], alpha=0.5, color="red")
+        # ylim = plt.ylim()
+        # plt.vlines(cngExact,*ylim,colors="g",linestyles="dotted")
+        # plt.vlines(cngApprx,*ylim,colors="r",linestyles="dotted")
         axs[dim].set_ylabel(f"TM {dimnames[dim]} pos. err. [m]")
     axs[2].set_xlabel("time [s]")
-    plt.suptitle(f'kG = {grp["kG"].iloc[0]}, kT = {grp["kT"].iloc[0]}')
+    plt.suptitle(f'kG = {float(grp["kG"].iloc[0]):.3g}, kT = {float(grp["kT"].iloc[0]):.3g}')
+    plt.tight_layout()
+    export_pdf.savefig()
+    plt.close()
+
+    fig, axs = plt.subplots(figsize=(8,6), nrows=2)
+    axs[0].plot(exact["t"][0,::dsamp], conExact[::dsamp,2], "-", label="GF1 exact")
+    axs[1].plot(exact["t"][0,::dsamp], conExact[::dsamp,3], "-", label="GF2 exact")
+    axs[0].plot(exact["t"][0,::dsamp], conExact[::dsamp,4], "-", label="RT1 exact")
+    axs[1].plot(exact["t"][0,::dsamp], conExact[::dsamp,5], "-", label="RT2 exact")
+    axs[0].plot(apprx["t"][0,::dsamp], conApprx[::dsamp,2], "--", label="GF1 apprx")
+    axs[1].plot(apprx["t"][0,::dsamp], conApprx[::dsamp,3], "--", label="GF2 apprx")
+    axs[0].plot(apprx["t"][0,::dsamp], conApprx[::dsamp,4], "--", label="RT1 apprx")
+    axs[1].plot(apprx["t"][0,::dsamp], conApprx[::dsamp,5], "--", label="RT2 apprx")
+    axs[1].set_xlabel("time [s]")
+    axs[0].set_ylabel("RT/GF 1 contact")
+    axs[1].set_ylabel("RT/GF 2 contact")
+    plt.legend()
+    plt.tight_layout()
+    export_pdf.savefig()
+    plt.close()
+
+    fig, axs = plt.subplots(figsize=(8,8),nrows=3,sharex=True)
+    for dim in range(3):
+        t0 = exact["t"][0,exact["t"][0,:]>17.5]
+        t = apprx["t"][0,apprx["t"][0,:]>17.5]
+        x0 = exact["xTM"][dim,exact["t"][0,:]>17.5]
+        x = sci.InterpolatedUnivariateSpline(t,apprx["xTM"][dim,apprx["t"][0,:]>17.5])
+        axs[dim].plot(t0[::dsamp],x(t0[::dsamp])-x0[::dsamp],"-")
+        # for i in range(regApprx.shape[0]):
+        #     # axs[dim].axvspan(*t0[regApprx[i,:]], alpha=0.5, color="red")
+        #     axs[dim].axvspan(t0[begApprx[i]], t0[endApprx[i]], alpha=0.5, color="red")
+        # ylim = plt.ylim()
+        # plt.vlines(cngExact,*ylim,colors="g",linestyles="dotted")
+        # plt.vlines(cngApprx,*ylim,colors="r",linestyles="dotted")
+        axs[dim].set_ylabel(f"TM {dimnames[dim]} pos. err. [m]")
+    axs[2].set_xlabel("time [s]")
+    plt.suptitle(f'kG = {float(grp["kG"].iloc[0]):.3g}, kT = {float(grp["kT"].iloc[0]):.3g}')
+    plt.tight_layout()
+    export_pdf.savefig()
+    plt.close()
+
+    fig, axs = plt.subplots(figsize=(8,6), nrows=2)
+    axs[0].plot(exact["t"][:,exact["t"][0,:]>17.5][0,::dsamp], conExact[exact["t"][0,:]>17.5,:][::dsamp,2], "-", label="GF1 exact")
+    axs[1].plot(exact["t"][:,exact["t"][0,:]>17.5][0,::dsamp], conExact[exact["t"][0,:]>17.5,:][::dsamp,3], "-", label="GF2 exact")
+    axs[0].plot(exact["t"][:,exact["t"][0,:]>17.5][0,::dsamp], conExact[exact["t"][0,:]>17.5,:][::dsamp,4], "-", label="RT1 exact")
+    axs[1].plot(exact["t"][:,exact["t"][0,:]>17.5][0,::dsamp], conExact[exact["t"][0,:]>17.5,:][::dsamp,5], "-", label="RT2 exact")
+    axs[0].plot(apprx["t"][:,apprx["t"][0,:]>17.5][0,::dsamp], conApprx[apprx["t"][0,:]>17.5,:][::dsamp,2], "--", label="GF1 apprx")
+    axs[1].plot(apprx["t"][:,apprx["t"][0,:]>17.5][0,::dsamp], conApprx[apprx["t"][0,:]>17.5,:][::dsamp,3], "--", label="GF2 apprx")
+    axs[0].plot(apprx["t"][:,apprx["t"][0,:]>17.5][0,::dsamp], conApprx[apprx["t"][0,:]>17.5,:][::dsamp,4], "--", label="RT1 apprx")
+    axs[1].plot(apprx["t"][:,apprx["t"][0,:]>17.5][0,::dsamp], conApprx[apprx["t"][0,:]>17.5,:][::dsamp,5], "--", label="RT2 apprx")
+    axs[1].set_xlabel("time [s]")
+    axs[0].set_ylabel("RT/GF 1 contact")
+    axs[1].set_ylabel("RT/GF 2 contact")
+    plt.legend()
     plt.tight_layout()
     export_pdf.savefig()
     plt.close()
@@ -205,8 +312,8 @@ if __name__ == "__main__":
     
     dorun = False
     neng = 10 # Number of Matlab instances
-    nval = 3 # Number of vals for each var
-    # nsamp = 10 # Number of runs
+    nval = 10 # Number of vals for each var
+    nsamp = 10 # Number of runs
     nclust = 8
     ncore = 4
     if dorun:
@@ -220,17 +327,15 @@ if __name__ == "__main__":
     Lt = 0.5e-4
     tr = 4e-6
 
-    # logging.info("Generating var sets.")
-    # vars = []
-    # # vars = ["vrsy", "ts1", "ts2", "tp", "tc"]
-    # # rngs = [[2e-6,6e-6], [0,10e-5], [0,10e-5], [0,2], [5,7]]#, [0,1e-4], [0,1e-4], [0,1e-2], [0,1e-2]]
     vars = ["kG", "kT", "estimateRT"]
-    rngs = [[6,7], [6,7]]
+    rngs = [[6,8], [6,8]]
     # arrs = [np.linspace(*rng, nval) for rng in rngs]
-    arrs = [np.logspace(*rng, nval) for rng in rngs]
-    arrs += [[0,1]]
-    # arrs = [[5e5,5.1e5],[5e5,5.1e5],[0,1]]
+    arrs = [np.logspace(*rng, nval)[1:-1] for rng in rngs]
     cols = np.array([col.flatten() for col in np.meshgrid(*arrs)]).T
+    rng = np.random.default_rng()
+    cols = rng.choice(cols, nsamp, replace=False)
+    cols = np.vstack([np.hstack([cols,np.zeros((cols.shape[0],1))]),
+                      np.hstack([cols,np.ones((cols.shape[0],1))])])
     df = pd.DataFrame(cols, columns=vars).astype(str)
 
     # vecs = ["xTM0"]
@@ -243,7 +348,7 @@ if __name__ == "__main__":
 
     if dorun:
         arg_list = [sum(df.loc[i].to_dict().items(),()) for i in df.index]
-        res = client.map(RunSim, arg_list)
+        res = client.map(lambda args: RunSim(args, 4*24*3600), arg_list)
         logging.info("Awaiting results.")
         res_list = client.gather(res)
         for res in res_list:
@@ -263,7 +368,7 @@ if __name__ == "__main__":
         for name, grp in df.groupby(["kG","kT"]):
             if grp.shape[0] != 2:
                 continue
-            errors.loc[name,:] = GetErrors(grp,export_pdf)
+            errors.loc[name,:] = GetErrors(grp, sTM, Lt,export_pdf)
         errors = errors.reset_index().astype(np.float64)
         
         fig, ax = plt.subplots(figsize=(8,6))
