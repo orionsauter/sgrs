@@ -310,7 +310,7 @@ if __name__ == "__main__":
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
     
-    dorun = False
+    dorun = True
     neng = 10 # Number of Matlab instances
     nval = 10 # Number of vals for each var
     nsamp = 10 # Number of runs
@@ -328,9 +328,9 @@ if __name__ == "__main__":
     tr = 4e-6
 
     vars = ["kG", "kT", "estimateRT"]
-    rngs = [[6,8], [6,8]]
+    rngs = [[5,7.5], [5,7.5]]
     # arrs = [np.linspace(*rng, nval) for rng in rngs]
-    arrs = [np.logspace(*rng, nval)[1:-1] for rng in rngs]
+    arrs = [np.logspace(*rng, nval) for rng in rngs]
     cols = np.array([col.flatten() for col in np.meshgrid(*arrs)]).T
     rng = np.random.default_rng()
     cols = rng.choice(cols, nsamp, replace=False)
@@ -348,7 +348,7 @@ if __name__ == "__main__":
 
     if dorun:
         arg_list = [sum(df.loc[i].to_dict().items(),()) for i in df.index]
-        res = client.map(lambda args: RunSim(args, 4*24*3600), arg_list)
+        res = client.map(lambda args: RunSim(args, 2*24*3600), arg_list)
         logging.info("Awaiting results.")
         res_list = client.gather(res)
         for res in res_list:

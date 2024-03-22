@@ -117,6 +117,9 @@ jpatt(16,[3:9,13:15]) = 1;
 jpatt(17,[3:9,13:15]) = 1;
 jpatt(18,[3:9,13:15]) = 1;
 
+% Move to writable var
+estimateRT = p.Results.estimateRT;
+
 %% Integration
 % options = odeset("JPattern",jpatt,"Vectorized","on","Events",@unbond);
 options = odeset("JPattern",jpatt, "RelTol", 1e-2, "AbsTol", absTol,...
@@ -124,7 +127,7 @@ options = odeset("JPattern",jpatt, "RelTol", 1e-2, "AbsTol", absTol,...
                           alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,...
                           b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,...
                           X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,...
-                          Fx,Fz,tr,timp,rgf,muT,muG,p.Results.estimateRT));
+                          Fx,Fz,tr,timp,rgf,muT,muG,estimateRT));
 %[t,y] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0);%, options);
 ie = [];
 t = [tspan(1), tspan(1)];
@@ -180,7 +183,7 @@ while t(end) < tspan(end)
         [dydt, dLg1, Fg1, dLg2, Fg2, dLt1, Ft1, dLt2, Ft2] = TMsys_HG(tspan(1),y0',...
             ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,...
             vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,...
-            I,T,Fx,Fz,tr,timp,rgf,muT,muG,p.Results.estimateRT);
+            I,T,Fx,Fz,tr,timp,rgf,muT,muG,estimateRT);
         xG1=outfile.y_out(end,1);
         xG2=outfile.y_out(end,2);
         xT1=outfile.y_out(end,3);
@@ -189,7 +192,10 @@ while t(end) < tspan(end)
         vTM=outfile.y_out(end,10:12);
         bTM=outfile.y_out(end,13:15);
 
-        % fprintf("%f: Release tip contact state is %i, %i.\n", t_out(end), dLt1 < 0, dLt2 < 0);
+        % When both tips are free, turn off estimateRT
+        if (dLt1 > 0 && dLt2 > 0)
+            estimateRT = 0.0;
+        end
         
         % No GF contact and 1+ RT separated
         if p.Results.useEnergy && all(ie > 2) && (dLt1 > 0 || dLt2 > 0)
@@ -289,7 +295,7 @@ while t(end) < tspan(end)
     end
     y0(:,23) = y0(:,21) & y0(:,22);
     y0(:,26) = max(y0(:,24),y0(:,25)).*y0(:,23) + -timp.*~y0(:,23);
-    [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG,p.Results.estimateRT), tspan, y0, options);
+    [t,y,te,ye,ie] = ode45(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG,estimateRT), tspan, y0, options);
     % [t,y,te,ye,ie] = ode23s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     % [t,y,te,ye,ie] = ode15s(@(t,y)TMsys_HG(t,y,ts1,ts2,tp,tc,sTM,d,Lt,alp,ac,bc,mT,M,k,kG,kT,kGRS,ixp,ixn,izp,izn,iy,b,vrsx,vrsy,X1g1,X2g1,X3g1,X1g2,X2g2,X3g2,X1t1,X2t1,X3t1,X1t2,X2t2,X3t2,I,T,Fx,Fz,tr,timp,rgf,muT,muG), tspan, y0, options);
     if numel(ie) > 0 && all(ie < 9) % Don't trim collision events
